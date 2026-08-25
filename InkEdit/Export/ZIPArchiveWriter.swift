@@ -1,0 +1,142 @@
+import Foundation
+
+enum ZIPArchiveError: LocalizedError, Equatable {
+    case invalidPath(String)
+    case archiveTooLarge
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidPath(let path): "ZIP 条目路径不安全：\(path)"
+        case .archiveTooLarge: "导出内容超过当前 ZIP 写入器支持的 4 GB 限制。"
+        }
+    }
+}
+
+struct ZIPArchiveEntry: Sendable {
+    var path: String
+    var data: Data
+}
+
+struct ZIPArchiveWriter {
+    func archive(entries: [ZIPArchiveEntry], date: Date = .now) throws -> Data {
+        var archive = Data()
+        var centralDirectory = Data()
+        let timestamp = dosTimestamp(date)
+
+        for entry in entries {
+            try validate(path: entry.path)
+            guard
+                let name = entry.path.data(using: .utf8),
+                name.count <= Int(UInt16.max),
+                entry.data.count <= Int(UInt32.max),
+                archive.count <= Int(UInt32.max)
+            else { throw ZIPArchiveError.archiveTooLarge }
+
+            let checksum = CRC32.checksum(entry.data)
+            let size = UInt32(entry.data.count)
+            let localOffset = UInt32(archive.count)
+
+            archive.appendLittleEndian(UInt32(0x0403_4B50))
+            archive.appendLittleEndian(UInt16(20))
+            archive.appendLittleEndian(UInt16(0x0800))
+            archive.appendLittleEndian(UInt16(0))
+            archive.appendLittleEndian(timestamp.time)
+            archive.appendLittleEndian(timestamp.date)
+            archive.appendLittleEndian(checksum)
+            archive.appendLittleEndian(size)
+            archive.appendLittleEndian(size)
+            archive.appendLittleEndian(UInt16(name.count))
+            archive.appendLittleEndian(UInt16(0))
+            archive.append(name)
+            archive.append(entry.data)
+
+            centralDirectory.appendLittleEndian(UInt32(0x0201_4B50))
+            centralDirectory.appendLittleEndian(UInt16(20))
+            centralDirectory.appendLittleEndian(UInt16(20))
+            centralDirectory.appendLittleEndian(UInt16(0x0800))
+            centralDirectory.appendLittleEndian(UInt16(0))
+            centralDirectory.appendLittleEndian(timestamp.time)
+            centralDirectory.appendLittleEndian(timestamp.date)
+            centralDirectory.appendLittleEndian(checksum)
+            centralDirectory.appendLittleEndian(size)
+            centralDirectory.appendLittleEndian(size)
+            centralDirectory.appendLittleEndian(UInt16(name.count))
+            centralDirectory.appendLittleEndian(UInt16(0))
+            centralDirectory.appendLittleEndian(UInt16(0))
+            centralDirectory.appendLittleEndian(UInt16(0))
+            centralDirectory.appendLittleEndian(UInt16(0))
+            centralDirectory.appendLittleEndian(UInt32(0))
+            centralDirectory.appendLittleEndian(localOffset)
+            centralDirectory.append(name)
+        }
+
+        guard
+            entries.count <= Int(UInt16.max),
+            centralDirectory.count <= Int(UInt32.max),
+            archive.count <= Int(UInt32.max)
+        else { throw ZIPArchiveError.archiveTooLarge }
+
+        let centralOffset = UInt32(archive.count)
+        archive.append(centralDirectory)
+        archive.appendLittleEndian(UInt32(0x0605_4B50))
+        archive.appendLittleEndian(UInt16(0))
+        archive.appendLittleEndian(UInt16(0))
+        archive.appendLittleEndian(UInt16(entries.count))
+        archive.appendLittleEndian(UInt16(entries.count))
+        archive.appendLittleEndian(UInt32(centralDirectory.count))
+        archive.appendLittleEndian(centralOffset)
+        archive.appendLittleEndian(UInt16(0))
+        return archive
+    }
+
+    private func validate(path: String) throws {
+        let components = path.split(separator: "/", omittingEmptySubsequences: false)
+        guard
+            !path.isEmpty,
+            !path.hasPrefix("/"),
+            !path.contains("\\"),
+            !components.contains(where: { $0.isEmpty || $0 == "." || $0 == ".." })
+        else { throw ZIPArchiveError.invalidPath(path) }
+    }
+
+    private func dosTimestamp(_ date: Date) -> (time: UInt16, date: UInt16) {
+        let calendar = Calendar(identifier: .gregorian)
+        let components = calendar.dateComponents([.year, .month, .day, .hour, .minute, .second], from: date)
+        let year = max(1980, min(2107, components.year ?? 1980))
+        let month = max(1, min(12, components.month ?? 1))
+        let day = max(1, min(31, components.day ?? 1))
+        let hour = max(0, min(23, components.hour ?? 0))
+        let minute = max(0, min(59, components.minute ?? 0))
+        let second = max(0, min(59, components.second ?? 0))
+        let dosTime = UInt16((hour << 11) | (minute << 5) | (second / 2))
+        let dosDate = UInt16(((year - 1980) << 9) | (month << 5) | day)
+        return (dosTime, dosDate)
+    }
+}
+
+private enum CRC32 {
+    static let table: [UInt32] = (0..<256).map { index in
+        var value = UInt32(index)
+        for _ in 0..<8 {
+            value = (value & 1) == 1 ? (value >> 1) ^ 0xEDB8_8320 : value >> 1
+        }
+        return value
+    }
+
+    static func checksum(_ data: Data) -> UInt32 {
+        var crc = UInt32.max
+        for byte in data {
+            crc = (crc >> 8) ^ table[Int((crc ^ UInt32(byte)) & 0xFF)]
+        }
+        return crc ^ UInt32.max
+    }
+}
+
+extension Data {
+    fileprivate mutating func appendLittleEndian<T: FixedWidthInteger>(_ value: T) {
+        var littleEndian = value.littleEndian
+        Swift.withUnsafeBytes(of: &littleEndian) { bytes in
+            append(contentsOf: bytes)
+        }
+    }
+}

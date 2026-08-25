@@ -25,7 +25,7 @@ struct MarkdownHTMLRendererTests {
             annotations: []
         )
 
-        #expect(html.contains(#"<img src="images/cover.png" alt="封面">"#))
+        #expect(html.contains(#"<img src="images/cover.png" alt="封面" />"#))
         #expect(html.contains(#"<a href="https://example.com">资料</a>"#))
         #expect(!html.contains("!<a"))
     }

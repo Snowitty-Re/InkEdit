@@ -21,6 +21,7 @@ struct BookWorkspaceView: View {
     @State private var mode = WorkspaceMode.write
     @State private var readerTheme = ReaderTheme.sepia
     @State private var showsInspector = false
+    @State private var showsExport = false
 
     let onClose: () -> Void
 
@@ -77,6 +78,15 @@ struct BookWorkspaceView: View {
                         Label("笔记与重点", systemImage: "note.text")
                     }
                     .help("显示笔记与重点")
+                }
+                ToolbarItem {
+                    Button {
+                        model.flushCurrentChapter()
+                        showsExport = true
+                    } label: {
+                        Label("导出书籍", systemImage: "square.and.arrow.up")
+                    }
+                    .help("导出书籍")
                 }
             }
         } detail: {
@@ -138,6 +148,9 @@ struct BookWorkspaceView: View {
         .frame(minWidth: 860, minHeight: 580)
         .inspector(isPresented: $showsInspector) {
             NotesInspectorView(model: model)
+        }
+        .sheet(isPresented: $showsExport) {
+            ExportSheet(project: model.project, rootURL: model.rootURL)
         }
         .onAppear { model.start() }
         .alert("新建章节", isPresented: $showsNewChapter) {

@@ -5,53 +5,66 @@ struct MarkdownHTMLRenderer {
         markdown: String,
         title: String,
         theme: ReaderTheme,
-        annotations: [BookAnnotation]
+        annotations: [BookAnnotation],
+        interactive: Bool = true
     ) -> String {
-        let body = renderBlocks(markdown)
+        let body = renderBody(markdown)
         let annotationJSON = encodedAnnotations(annotations)
+        let readerScript = interactive ? script(annotationJSON: annotationJSON) : ""
         return """
             <!doctype html>
             <html lang="zh-Hans">
             <head>
               <meta charset="utf-8">
               <meta name="viewport" content="width=device-width, initial-scale=1">
-              <style>\(style(for: theme))</style>
+              <title>\(escape(title))</title>
+              <style>\(styleSheet(for: theme))</style>
             </head>
             <body>
               <main id="manuscript" aria-label="\(escapeAttribute(title))">\(body)</main>
-              <script>
-                const annotations = \(annotationJSON);
-                function textNodes(root) {
-                  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-                  const nodes = []; while (walker.nextNode()) nodes.push(walker.currentNode); return nodes;
-                }
-                function applyHighlight(annotation) {
-                  if (!annotation.selectedText) return;
-                  for (const node of textNodes(document.getElementById('manuscript'))) {
-                    const index = node.nodeValue.indexOf(annotation.selectedText);
-                    if (index < 0 || node.parentElement.closest('mark')) continue;
-                    const range = document.createRange();
-                    range.setStart(node, index); range.setEnd(node, index + annotation.selectedText.length);
-                    const mark = document.createElement('mark'); mark.dataset.annotationId = annotation.id;
-                    range.surroundContents(mark); return;
-                  }
-                }
-                annotations.forEach(applyHighlight);
-                document.addEventListener('mouseup', () => {
-                  const selection = window.getSelection(); const selectedText = selection.toString().trim();
-                  if (!selectedText || !selection.rangeCount) return;
-                  const allText = document.getElementById('manuscript').innerText;
-                  const index = allText.indexOf(selectedText);
-                  window.webkit.messageHandlers.selection.postMessage({
-                    selectedText,
-                    prefix: index >= 0 ? allText.slice(Math.max(0, index - 32), index) : '',
-                    suffix: index >= 0 ? allText.slice(index + selectedText.length, index + selectedText.length + 32) : ''
-                  });
-                });
-              </script>
+              \(readerScript)
             </body>
             </html>
             """
+    }
+
+    func renderBody(_ markdown: String) -> String {
+        renderBlocks(markdown)
+    }
+
+    private func script(annotationJSON: String) -> String {
+        """
+        <script>
+            const annotations = \(annotationJSON);
+            function textNodes(root) {
+              const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+              const nodes = []; while (walker.nextNode()) nodes.push(walker.currentNode); return nodes;
+            }
+            function applyHighlight(annotation) {
+              if (!annotation.selectedText) return;
+              for (const node of textNodes(document.getElementById('manuscript'))) {
+                const index = node.nodeValue.indexOf(annotation.selectedText);
+                if (index < 0 || node.parentElement.closest('mark')) continue;
+                const range = document.createRange();
+                range.setStart(node, index); range.setEnd(node, index + annotation.selectedText.length);
+                const mark = document.createElement('mark'); mark.dataset.annotationId = annotation.id;
+                range.surroundContents(mark); return;
+              }
+            }
+            annotations.forEach(applyHighlight);
+            document.addEventListener('mouseup', () => {
+              const selection = window.getSelection(); const selectedText = selection.toString().trim();
+              if (!selectedText || !selection.rangeCount) return;
+              const allText = document.getElementById('manuscript').innerText;
+              const index = allText.indexOf(selectedText);
+              window.webkit.messageHandlers.selection.postMessage({
+                selectedText,
+                prefix: index >= 0 ? allText.slice(Math.max(0, index - 32), index) : '',
+                suffix: index >= 0 ? allText.slice(index + selectedText.length, index + selectedText.length + 32) : ''
+              });
+            });
+        </script>
+        """
     }
 
     private func renderBlocks(_ markdown: String) -> String {
@@ -108,7 +121,7 @@ struct MarkdownHTMLRenderer {
             } else if line == "---" || line == "***" {
                 flushParagraph()
                 flushList()
-                html.append("<hr>")
+                html.append("<hr />")
             } else {
                 flushList()
                 paragraph.append(line)
@@ -128,7 +141,7 @@ struct MarkdownHTMLRenderer {
         value = replacing(#"\*\*([^*]+)\*\*"#, in: value, template: "<strong>$1</strong>")
         value = replacing(#"__([^_]+)__"#, in: value, template: "<strong>$1</strong>")
         value = replacing(#"\*([^*]+)\*"#, in: value, template: "<em>$1</em>")
-        value = replacing(#"!\[([^]]*)\]\(([^)]+)\)"#, in: value, template: #"<img src="$2" alt="$1">"#)
+        value = replacing(#"!\[([^]]*)\]\(([^)]+)\)"#, in: value, template: #"<img src="$2" alt="$1" />"#)
         value = replacing(#"(?<!!)\[([^]]+)\]\(([^)]+)\)"#, in: value, template: #"<a href="$2">$1</a>"#)
         return value
     }
@@ -176,7 +189,7 @@ struct MarkdownHTMLRenderer {
         escape(source).replacingOccurrences(of: "\"", with: "&quot;")
     }
 
-    private func style(for theme: ReaderTheme) -> String {
+    func styleSheet(for theme: ReaderTheme) -> String {
         let colors =
             switch theme {
             case .light: (background: "#fbfbfa", foreground: "#20201f", secondary: "#686866", mark: "#ffe58a")
