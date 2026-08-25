@@ -136,6 +136,46 @@ struct BookRepository {
         try AtomicFileWriter.write(try encoder.encode(updatedProject), to: metadataURL(for: rootURL))
     }
 
+    func readChapter(_ chapter: BookOutlineNode, in rootURL: URL) throws -> String {
+        guard chapter.kind == .chapter, let relativePath = chapter.relativePath else {
+            throw BookRepositoryError.invalidProject
+        }
+        return try String(contentsOf: safeURL(for: relativePath, in: rootURL), encoding: .utf8)
+    }
+
+    func writeChapter(_ content: String, chapter: BookOutlineNode, in rootURL: URL) throws {
+        guard chapter.kind == .chapter, let relativePath = chapter.relativePath else {
+            throw BookRepositoryError.invalidProject
+        }
+        try AtomicFileWriter.write(content, to: safeURL(for: relativePath, in: rootURL))
+    }
+
+    func addChapter(title: String, to project: BookProject, in rootURL: URL) throws -> BookProject {
+        let normalizedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedTitle.isEmpty else {
+            throw BookRepositoryError.emptyTitle
+        }
+
+        let baseName = safeFileName(normalizedTitle)
+        var fileName = "\(baseName).md"
+        var suffix = 2
+        while fileManager.fileExists(atPath: rootURL.appendingPathComponent(fileName).path) {
+            fileName = "\(baseName) \(suffix).md"
+            suffix += 1
+        }
+
+        try AtomicFileWriter.write("# \(normalizedTitle)\n\n", to: rootURL.appendingPathComponent(fileName))
+        var updated = project
+        updated.outline.append(.chapter(title: normalizedTitle, relativePath: fileName))
+        do {
+            try saveProject(updated, at: rootURL)
+            return try loadProject(at: rootURL)
+        } catch {
+            try? fileManager.removeItem(at: rootURL.appendingPathComponent(fileName))
+            throw error
+        }
+    }
+
     func safeURL(for relativePath: String, in rootURL: URL) throws -> URL {
         guard !relativePath.isEmpty, !relativePath.hasPrefix("/"), !relativePath.contains("\0") else {
             throw BookRepositoryError.unsafeRelativePath(relativePath)

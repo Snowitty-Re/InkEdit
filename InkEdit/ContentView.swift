@@ -37,10 +37,39 @@ struct ContentView: View {
     @State private var showsNewBookSheet = false
     @State private var showsMarkdownImporter = false
     @State private var errorMessage: String?
+    @State private var activeProject: OpenBookProject?
+    @State private var activeAccess: ScopedBookAccess?
 
     private let repository = BookRepository()
 
     var body: some View {
+        Group {
+            if let activeProject {
+                BookWorkspaceView(project: activeProject, onClose: closeWorkspace)
+            } else {
+                libraryView
+            }
+        }
+        .frame(minWidth: 900, minHeight: 600)
+        .sheet(isPresented: $showsNewBookSheet) {
+            NewBookSheet { title, author in
+                createBook(title: title, author: author)
+            }
+        }
+        .fileImporter(
+            isPresented: $showsMarkdownImporter,
+            allowedContentTypes: [UTType(filenameExtension: "md") ?? .plainText, .plainText],
+            allowsMultipleSelection: false,
+            onCompletion: handleMarkdownImport
+        )
+        .alert("操作失败", isPresented: errorBinding) {
+            Button("好", role: .cancel) {}
+        } message: {
+            Text(errorMessage ?? "未知错误")
+        }
+    }
+
+    private var libraryView: some View {
         NavigationSplitView {
             List(selection: $section) {
                 Section("书架") {
@@ -65,23 +94,6 @@ struct ContentView: View {
                 .toolbar { libraryToolbar }
         } detail: {
             detailView
-        }
-        .frame(minWidth: 900, minHeight: 600)
-        .sheet(isPresented: $showsNewBookSheet) {
-            NewBookSheet { title, author in
-                createBook(title: title, author: author)
-            }
-        }
-        .fileImporter(
-            isPresented: $showsMarkdownImporter,
-            allowedContentTypes: [UTType(filenameExtension: "md") ?? .plainText, .plainText],
-            allowsMultipleSelection: false,
-            onCompletion: handleMarkdownImport
-        )
-        .alert("操作失败", isPresented: errorBinding) {
-            Button("好", role: .cancel) {}
-        } message: {
-            Text(errorMessage ?? "未知错误")
         }
     }
 
@@ -250,15 +262,23 @@ struct ContentView: View {
     private func openBook(_ book: LibraryBook) {
         do {
             let access = try BookAccessController.resolve(book.rootBookmark)
-            defer { access.stop() }
             let project = try repository.loadProject(at: access.url)
             book.title = project.title
             book.author = project.author
             book.lastOpenedAt = .now
             try modelContext.save()
+            activeAccess?.stop()
+            activeAccess = access
+            activeProject = OpenBookProject(rootURL: access.url, metadata: project)
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func closeWorkspace() {
+        activeProject = nil
+        activeAccess?.stop()
+        activeAccess = nil
     }
 
     private func revealInFinder(_ book: LibraryBook) {

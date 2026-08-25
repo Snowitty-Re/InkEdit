@@ -57,6 +57,18 @@ struct BookRepositoryTests {
         }
     }
 
+    @Test func addsChapterWithoutOverwritingDuplicateNames() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let opened = try BookRepository().createBook(title: "章节测试", author: "", in: root)
+
+        let first = try BookRepository().addChapter(title: "尾声", to: opened.metadata, in: opened.rootURL)
+        let second = try BookRepository().addChapter(title: "尾声", to: first, in: opened.rootURL)
+
+        #expect(second.chapters.map(\.relativePath) == ["第一章.md", "尾声.md", "尾声 2.md"])
+        #expect(FileManager.default.fileExists(atPath: opened.rootURL.appendingPathComponent("尾声 2.md").path))
+    }
+
     private func temporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: false)
