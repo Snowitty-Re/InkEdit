@@ -85,6 +85,7 @@ struct ContentView: View {
                 }
                 .foregroundStyle(.secondary)
             }
+            .accessibilityIdentifier("library-sidebar")
             .navigationTitle("InkEdit")
             .navigationSplitViewColumnWidth(min: 180, ideal: 210, max: 260)
         } content: {
@@ -189,12 +190,15 @@ struct ContentView: View {
             } label: {
                 Label("导入", systemImage: "square.and.arrow.down")
             }
+            .accessibilityIdentifier("import-book-menu")
 
             Button {
                 showsNewBookSheet = true
             } label: {
                 Label("创建书籍", systemImage: "plus")
             }
+            .keyboardShortcut("n", modifiers: .command)
+            .accessibilityIdentifier("create-book-button")
         }
     }
 

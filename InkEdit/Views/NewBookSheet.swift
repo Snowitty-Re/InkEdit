@@ -19,7 +19,9 @@ struct NewBookSheet: View {
 
             Form {
                 TextField("书名", text: $title)
+                    .accessibilityIdentifier("book-title-field")
                 TextField("作者", text: $author)
+                    .accessibilityIdentifier("book-author-field")
             }
 
             HStack {
@@ -32,6 +34,7 @@ struct NewBookSheet: View {
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .accessibilityIdentifier("confirm-create-book-button")
             }
         }
         .padding(24)

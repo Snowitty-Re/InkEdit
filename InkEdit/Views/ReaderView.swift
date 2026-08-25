@@ -30,6 +30,7 @@ struct ReaderView: View {
             .labelsHidden()
             .frame(width: 180)
             .padding(16)
+            .accessibilityIdentifier("reader-theme-picker")
         }
     }
 }

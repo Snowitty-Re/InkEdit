@@ -61,6 +61,8 @@ struct BookWorkspaceView: View {
                     } label: {
                         Label("新建章节", systemImage: "plus")
                     }
+                    .keyboardShortcut("n", modifiers: [.command, .shift])
+                    .accessibilityIdentifier("new-chapter-button")
                 }
                 ToolbarItem(placement: .principal) {
                     Picker("工作模式", selection: modeBinding) {
@@ -71,6 +73,7 @@ struct BookWorkspaceView: View {
                     .pickerStyle(.segmented)
                     .labelsHidden()
                     .frame(width: 150)
+                    .accessibilityIdentifier("workspace-mode-picker")
                 }
                 ToolbarItem {
                     Button {
@@ -88,6 +91,8 @@ struct BookWorkspaceView: View {
                         Label("导出书籍", systemImage: "square.and.arrow.up")
                     }
                     .help("导出书籍")
+                    .keyboardShortcut("e", modifiers: [.command, .shift])
+                    .accessibilityIdentifier("export-book-button")
                 }
                 ToolbarItem {
                     Button {
@@ -97,6 +102,8 @@ struct BookWorkspaceView: View {
                         Label("云端同步", systemImage: "arrow.triangle.2.circlepath.icloud")
                     }
                     .help("Google Drive 或 GitHub 私有仓库同步")
+                    .keyboardShortcut("s", modifiers: [.command, .shift])
+                    .accessibilityIdentifier("cloud-sync-button")
                 }
             }
         } detail: {
