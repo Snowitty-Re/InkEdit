@@ -1,0 +1,20 @@
+# Xcode user state
+xcuserdata/
+*.xcuserstate
+
+# Build products
+DerivedData/
+.build/
+build/
+
+# Swift Package Manager
+.swiftpm/
+Package.resolved
+
+# Local configuration and credentials
+Config/Secrets.xcconfig
+*.p8
+
+# macOS
+.DS_Store
+

@@ -5,14 +5,14 @@
 //  Created by Snowitty on 2026/8/25.
 //
 
-import SwiftUI
 import SwiftData
+import SwiftUI
 
 @main
 struct InkEditApp: App {
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
-            Item.self,
+            Item.self
         ])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
 
