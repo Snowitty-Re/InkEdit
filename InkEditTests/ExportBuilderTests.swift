@@ -75,6 +75,19 @@ struct ExportBuilderTests {
         }
     }
 
+    @Test func roundTripsStoredZIPEntries() throws {
+        let source = [
+            ZIPArchiveEntry(path: "第一章.md", data: Data("长夜将尽".utf8)),
+            ZIPArchiveEntry(path: ".inkedit/project.json", data: Data("{}".utf8)),
+        ]
+
+        let archive = try ZIPArchiveWriter().archive(entries: source)
+        let restored = try ZIPArchiveReader().entries(in: archive)
+
+        #expect(restored.map(\.path) == source.map(\.path))
+        #expect(restored.map(\.data) == source.map(\.data))
+    }
+
     private func samplePublication(resources: [PublicationResource] = []) -> PublicationDocument {
         PublicationDocument(
             id: UUID(uuidString: "42F62E6A-A1F7-4C94-BF89-6CA678679683")!,

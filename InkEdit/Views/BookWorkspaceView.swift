@@ -22,6 +22,7 @@ struct BookWorkspaceView: View {
     @State private var readerTheme = ReaderTheme.sepia
     @State private var showsInspector = false
     @State private var showsExport = false
+    @State private var showsCloudSync = false
 
     let onClose: () -> Void
 
@@ -88,6 +89,15 @@ struct BookWorkspaceView: View {
                     }
                     .help("导出书籍")
                 }
+                ToolbarItem {
+                    Button {
+                        model.flushCurrentChapter()
+                        showsCloudSync = true
+                    } label: {
+                        Label("云端同步", systemImage: "arrow.triangle.2.circlepath.icloud")
+                    }
+                    .help("Google Drive 或 GitHub 私有仓库同步")
+                }
             }
         } detail: {
             if let chapter = model.selectedChapter {
@@ -151,6 +161,13 @@ struct BookWorkspaceView: View {
         }
         .sheet(isPresented: $showsExport) {
             ExportSheet(project: model.project, rootURL: model.rootURL)
+        }
+        .sheet(isPresented: $showsCloudSync) {
+            CloudSyncSheet(
+                project: model.project,
+                rootURL: model.rootURL,
+                onPulled: model.reloadAfterExternalChange
+            )
         }
         .onAppear { model.start() }
         .alert("新建章节", isPresented: $showsNewChapter) {

@@ -27,3 +27,7 @@ xcodebuild \
 
 更多约定见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
+## 云端同步
+
+工作区支持 Google Drive 与 GitHub 私有仓库的手动上传/拉取，并通过基线哈希保留双端修改。
+凭据仅存入 macOS Keychain。开发连接方式和冲突策略见 [云端同步说明](docs/CLOUD_SYNC.md)。

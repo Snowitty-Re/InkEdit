@@ -3,11 +3,17 @@ import Foundation
 enum ZIPArchiveError: LocalizedError, Equatable {
     case invalidPath(String)
     case archiveTooLarge
+    case invalidArchive
+    case unsupportedCompression
+    case checksumMismatch(String)
 
     var errorDescription: String? {
         switch self {
         case .invalidPath(let path): "ZIP 条目路径不安全：\(path)"
         case .archiveTooLarge: "导出内容超过当前 ZIP 写入器支持的 4 GB 限制。"
+        case .invalidArchive: "云端项目快照不是有效的 ZIP 文件。"
+        case .unsupportedCompression: "云端项目快照使用了不支持的压缩方式。"
+        case .checksumMismatch(let path): "云端项目快照校验失败：\(path)"
         }
     }
 }
@@ -114,6 +120,56 @@ struct ZIPArchiveWriter {
     }
 }
 
+struct ZIPArchiveReader {
+    func entries(in archive: Data) throws -> [ZIPArchiveEntry] {
+        var offset = 0
+        var entries: [ZIPArchiveEntry] = []
+        while offset + 4 <= archive.count {
+            let signature: UInt32 = try archive.littleEndian(at: offset)
+            guard signature == 0x0403_4B50 else {
+                if signature == 0x0201_4B50 || signature == 0x0605_4B50 { break }
+                throw ZIPArchiveError.invalidArchive
+            }
+            guard offset + 30 <= archive.count else { throw ZIPArchiveError.invalidArchive }
+            let flags: UInt16 = try archive.littleEndian(at: offset + 6)
+            let compression: UInt16 = try archive.littleEndian(at: offset + 8)
+            let checksum: UInt32 = try archive.littleEndian(at: offset + 14)
+            let compressedSize: UInt32 = try archive.littleEndian(at: offset + 18)
+            let uncompressedSize: UInt32 = try archive.littleEndian(at: offset + 22)
+            let nameLength: UInt16 = try archive.littleEndian(at: offset + 26)
+            let extraLength: UInt16 = try archive.littleEndian(at: offset + 28)
+            guard flags & 0x0008 == 0, compression == 0 else {
+                throw ZIPArchiveError.unsupportedCompression
+            }
+            guard compressedSize == uncompressedSize else { throw ZIPArchiveError.invalidArchive }
+
+            let nameStart = offset + 30
+            let dataStart = nameStart + Int(nameLength) + Int(extraLength)
+            let dataEnd = dataStart + Int(compressedSize)
+            guard dataEnd <= archive.count else { throw ZIPArchiveError.invalidArchive }
+            let nameData = archive.subdata(in: nameStart..<(nameStart + Int(nameLength)))
+            guard let path = String(data: nameData, encoding: .utf8) else { throw ZIPArchiveError.invalidArchive }
+            try validate(path: path)
+            let data = archive.subdata(in: dataStart..<dataEnd)
+            guard CRC32.checksum(data) == checksum else { throw ZIPArchiveError.checksumMismatch(path) }
+            entries.append(ZIPArchiveEntry(path: path, data: data))
+            offset = dataEnd
+        }
+        guard !entries.isEmpty else { throw ZIPArchiveError.invalidArchive }
+        return entries
+    }
+
+    private func validate(path: String) throws {
+        let components = path.split(separator: "/", omittingEmptySubsequences: false)
+        guard
+            !path.isEmpty,
+            !path.hasPrefix("/"),
+            !path.contains("\\"),
+            !components.contains(where: { $0.isEmpty || $0 == "." || $0 == ".." })
+        else { throw ZIPArchiveError.invalidPath(path) }
+    }
+}
+
 private enum CRC32 {
     static let table: [UInt32] = (0..<256).map { index in
         var value = UInt32(index)
@@ -138,5 +194,16 @@ extension Data {
         Swift.withUnsafeBytes(of: &littleEndian) { bytes in
             append(contentsOf: bytes)
         }
+    }
+
+    fileprivate func littleEndian<T: FixedWidthInteger>(at offset: Int) throws -> T {
+        guard offset >= 0, offset + MemoryLayout<T>.size <= count else {
+            throw ZIPArchiveError.invalidArchive
+        }
+        var value: T = 0
+        _ = Swift.withUnsafeMutableBytes(of: &value) { destination in
+            copyBytes(to: destination, from: offset..<(offset + MemoryLayout<T>.size))
+        }
+        return T(littleEndian: value)
     }
 }

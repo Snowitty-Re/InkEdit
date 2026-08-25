@@ -109,6 +109,20 @@ final class BookWorkspaceModel {
         errorMessage = nil
     }
 
+    func reloadAfterExternalChange() {
+        saveTask?.cancel()
+        do {
+            project = try repository.loadProject(at: rootURL)
+            if !chapters.contains(where: { $0.id == selectedChapterID }) {
+                selectedChapterID = chapters.first?.id
+            }
+            loadSelectedChapter()
+            annotationDocument = try annotationRepository.load(in: rootURL)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     func addHighlight(_ selection: ReaderSelection) {
         guard
             let chapter = selectedChapter,
