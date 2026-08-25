@@ -121,6 +121,36 @@ struct BookAnnotation: Codable, Equatable, Identifiable, Sendable {
     var note: String
     var createdAt: Date
     var modifiedAt: Date
+
+    init(
+        id: UUID = UUID(),
+        chapterRelativePath: String,
+        kind: Kind,
+        colorName: String = "yellow",
+        selectedText: String,
+        prefix: String,
+        suffix: String,
+        utf16Location: Int,
+        utf16Length: Int,
+        chapterDigest: String,
+        note: String = "",
+        createdAt: Date = .now,
+        modifiedAt: Date = .now
+    ) {
+        self.id = id
+        self.chapterRelativePath = chapterRelativePath
+        self.kind = kind
+        self.colorName = colorName
+        self.selectedText = selectedText
+        self.prefix = prefix
+        self.suffix = suffix
+        self.utf16Location = utf16Location
+        self.utf16Length = utf16Length
+        self.chapterDigest = chapterDigest
+        self.note = note
+        self.createdAt = createdAt
+        self.modifiedAt = modifiedAt
+    }
 }
 
 struct OpenBookProject: Sendable {

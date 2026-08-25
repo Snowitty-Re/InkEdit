@@ -1,9 +1,26 @@
 import SwiftUI
 
 struct BookWorkspaceView: View {
+    private enum WorkspaceMode: String, CaseIterable, Identifiable {
+        case write
+        case read
+
+        var id: Self { self }
+
+        var title: String {
+            switch self {
+            case .write: "写作"
+            case .read: "阅读"
+            }
+        }
+    }
+
     @State private var model: BookWorkspaceModel
     @State private var showsNewChapter = false
     @State private var newChapterTitle = ""
+    @State private var mode = WorkspaceMode.write
+    @State private var readerTheme = ReaderTheme.sepia
+    @State private var showsInspector = false
 
     let onClose: () -> Void
 
@@ -43,6 +60,24 @@ struct BookWorkspaceView: View {
                         Label("新建章节", systemImage: "plus")
                     }
                 }
+                ToolbarItem(placement: .principal) {
+                    Picker("工作模式", selection: modeBinding) {
+                        ForEach(WorkspaceMode.allCases) { mode in
+                            Text(mode.title).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(width: 150)
+                }
+                ToolbarItem {
+                    Button {
+                        showsInspector.toggle()
+                    } label: {
+                        Label("笔记与重点", systemImage: "note.text")
+                    }
+                    .help("显示笔记与重点")
+                }
             }
         } detail: {
             if let chapter = model.selectedChapter {
@@ -63,8 +98,23 @@ struct BookWorkspaceView: View {
 
                     Divider()
 
-                    MarkdownTextEditor(text: chapterTextBinding)
-                        .background(Color(nsColor: .textBackgroundColor))
+                    switch mode {
+                    case .write:
+                        MarkdownTextEditor(text: chapterTextBinding)
+                            .background(Color(nsColor: .textBackgroundColor))
+                    case .read:
+                        ReaderView(
+                            markdown: model.chapterText,
+                            chapterTitle: chapter.title,
+                            rootURL: model.rootURL,
+                            annotations: model.currentChapterAnnotations,
+                            onSelection: { selection in
+                                model.addHighlight(selection)
+                                showsInspector = true
+                            },
+                            theme: $readerTheme
+                        )
+                    }
 
                     Divider()
 
@@ -73,7 +123,7 @@ struct BookWorkspaceView: View {
                         Text("\(model.statistics.wordCount) 字词")
                         Text("约 \(model.statistics.estimatedReadingMinutes) 分钟阅读")
                         Spacer()
-                        Text("Markdown")
+                        Text(mode == .write ? "Markdown" : "阅读模式")
                     }
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -86,6 +136,9 @@ struct BookWorkspaceView: View {
             }
         }
         .frame(minWidth: 860, minHeight: 580)
+        .inspector(isPresented: $showsInspector) {
+            NotesInspectorView(model: model)
+        }
         .onAppear { model.start() }
         .alert("新建章节", isPresented: $showsNewChapter) {
             TextField("章节标题", text: $newChapterTitle)
@@ -113,6 +166,18 @@ struct BookWorkspaceView: View {
         Binding(
             get: { model.chapterText },
             set: { model.updateText($0) }
+        )
+    }
+
+    private var modeBinding: Binding<WorkspaceMode> {
+        Binding(
+            get: { mode },
+            set: { newMode in
+                if newMode == .read {
+                    model.flushCurrentChapter()
+                }
+                mode = newMode
+            }
         )
     }
 
