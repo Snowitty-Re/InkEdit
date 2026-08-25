@@ -63,12 +63,7 @@ struct BookWorkspaceView: View {
 
                     Divider()
 
-                    TextEditor(text: chapterTextBinding)
-                        .font(.system(size: 17, weight: .regular, design: .serif))
-                        .lineSpacing(7)
-                        .scrollContentBackground(.hidden)
-                        .padding(.horizontal, 44)
-                        .padding(.vertical, 24)
+                    MarkdownTextEditor(text: chapterTextBinding)
                         .background(Color(nsColor: .textBackgroundColor))
 
                     Divider()
