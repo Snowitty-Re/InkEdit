@@ -1,25 +1,13 @@
-//
-//  InkEditApp.swift
-//  InkEdit
-//
-//  Created by Snowitty on 2026/8/25.
-//
-
 import SwiftData
 import SwiftUI
 
 @main
 struct InkEditApp: App {
-    var sharedModelContainer: ModelContainer = {
-        let schema = Schema([
-            Item.self
-        ])
-        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
-
+    private let modelContainer: ModelContainer = {
         do {
-            return try ModelContainer(for: schema, configurations: [modelConfiguration])
+            return try ModelContainer(for: LibraryBook.self)
         } catch {
-            fatalError("Could not create ModelContainer: \(error)")
+            fatalError("Could not create the InkEdit library: \(error)")
         }
     }()
 
@@ -27,6 +15,6 @@ struct InkEditApp: App {
         WindowGroup {
             ContentView()
         }
-        .modelContainer(sharedModelContainer)
+        .modelContainer(modelContainer)
     }
 }
