@@ -43,6 +43,37 @@ final class MarkdownSyntaxHighlighter {
         storage.endEditing()
     }
 
+    func updateMarkerVisibility(in storage: NSTextStorage, selectedRange: NSRange) {
+        let source = storage.string as NSString
+        let fullRange = NSRange(location: 0, length: source.length)
+        let activeLine = source.lineRange(for: clampedSelection(selectedRange, length: source.length))
+
+        storage.beginEditing()
+        headingExpression.enumerateMatches(in: source as String, range: fullRange) { result, _, _ in
+            guard let result else { return }
+            styleMarker(result.range(at: 1), in: storage, activeLine: activeLine)
+        }
+        quoteExpression.enumerateMatches(in: source as String, range: fullRange) { result, _, _ in
+            guard let result else { return }
+            styleMarker(result.range(at: 1), in: storage, activeLine: activeLine)
+        }
+        listExpression.enumerateMatches(in: source as String, range: fullRange) { result, _, _ in
+            guard let result else { return }
+            styleMarker(result.range, in: storage, activeLine: activeLine)
+        }
+        enumeratePairedMarkers(
+            boldExpression, markerLength: 2, storage: storage, range: fullRange, activeLine: activeLine)
+        enumeratePairedMarkers(
+            italicExpression, markerLength: 1, storage: storage, range: fullRange, activeLine: activeLine)
+        enumeratePairedMarkers(
+            codeExpression, markerLength: 1, storage: storage, range: fullRange, activeLine: activeLine)
+        linkExpression.enumerateMatches(in: source as String, range: fullRange) { result, _, _ in
+            guard let result else { return }
+            styleLinkMarkers(result, in: storage, activeLine: activeLine)
+        }
+        storage.endEditing()
+    }
+
     private var bodyFont: NSFont {
         NSFont(name: "Songti SC", size: 18) ?? .systemFont(ofSize: 18)
     }
@@ -139,22 +170,46 @@ final class MarkdownSyntaxHighlighter {
                 ],
                 range: labelRange
             )
-            guard NSIntersectionRange(result.range, activeLine).length == 0 else {
-                let leadingLength = labelRange.location - result.range.location
-                styleMarker(
-                    NSRange(location: result.range.location, length: leadingLength),
-                    in: storage,
-                    activeLine: activeLine
-                )
-                let trailingLocation = NSMaxRange(labelRange)
-                styleMarker(
-                    NSRange(location: trailingLocation, length: NSMaxRange(result.range) - trailingLocation),
-                    in: storage,
-                    activeLine: activeLine
-                )
-                return
-            }
+            styleLinkMarkers(result, in: storage, activeLine: activeLine)
         }
+    }
+
+    private func enumeratePairedMarkers(
+        _ expression: NSRegularExpression,
+        markerLength: Int,
+        storage: NSTextStorage,
+        range: NSRange,
+        activeLine: NSRange
+    ) {
+        expression.enumerateMatches(in: storage.string, range: range) { result, _, _ in
+            guard let result else { return }
+            stylePairedMarkers(
+                matchRange: result.range,
+                markerLength: markerLength,
+                in: storage,
+                activeLine: activeLine
+            )
+        }
+    }
+
+    private func styleLinkMarkers(
+        _ result: NSTextCheckingResult,
+        in storage: NSTextStorage,
+        activeLine: NSRange
+    ) {
+        let labelRange = result.range(at: 1)
+        let leadingLength = labelRange.location - result.range.location
+        styleMarker(
+            NSRange(location: result.range.location, length: leadingLength),
+            in: storage,
+            activeLine: activeLine
+        )
+        let trailingLocation = NSMaxRange(labelRange)
+        styleMarker(
+            NSRange(location: trailingLocation, length: NSMaxRange(result.range) - trailingLocation),
+            in: storage,
+            activeLine: activeLine
+        )
     }
 
     private func stylePairedMarkers(
@@ -173,23 +228,16 @@ final class MarkdownSyntaxHighlighter {
 
     private func styleMarker(_ range: NSRange, in storage: NSTextStorage, activeLine: NSRange) {
         guard range.location != NSNotFound, range.length > 0 else { return }
-        if NSIntersectionRange(range, activeLine).length == 0 {
-            storage.addAttributes(
-                [
-                    .foregroundColor: NSColor.clear,
-                    .font: NSFont.systemFont(ofSize: 0.1),
-                ],
-                range: range
-            )
-        } else {
-            storage.addAttributes(
-                [
-                    .foregroundColor: NSColor.tertiaryLabelColor,
-                    .font: NSFont.monospacedSystemFont(ofSize: 14, weight: .regular),
-                ],
-                range: range
-            )
+        let font = NSFont.monospacedSystemFont(ofSize: 14, weight: .regular)
+        if storage.attribute(.font, at: range.location, effectiveRange: nil) as? NSFont != font {
+            storage.addAttribute(.font, value: font, range: range)
         }
+        let color: NSColor =
+            NSIntersectionRange(range, activeLine).length == 0 ? .clear : .tertiaryLabelColor
+        guard storage.attribute(.foregroundColor, at: range.location, effectiveRange: nil) as? NSColor != color else {
+            return
+        }
+        storage.addAttribute(.foregroundColor, value: color, range: range)
     }
 
     private func clampedSelection(_ range: NSRange, length: Int) -> NSRange {

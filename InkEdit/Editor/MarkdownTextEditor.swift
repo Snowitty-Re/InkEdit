@@ -47,7 +47,10 @@ struct MarkdownTextEditor: NSViewRepresentable {
         guard let textView = scrollView.documentView as? NSTextView, textView.string != text else { return }
         let selection = textView.selectedRange()
         textView.string = text
-        textView.setSelectedRange(NSRange(location: min(selection.location, textView.string.utf16.count), length: 0))
+        let textLength = (textView.string as NSString).length
+        let location = min(selection.location, textLength)
+        let length = min(selection.length, max(0, textLength - location))
+        textView.setSelectedRange(NSRange(location: location, length: length))
         context.coordinator.highlight()
     }
 
@@ -57,6 +60,7 @@ struct MarkdownTextEditor: NSViewRepresentable {
         weak var textView: NSTextView?
         private let highlighter = MarkdownSyntaxHighlighter()
         private var isApplyingHighlight = false
+        private var activeLineLocation: Int?
 
         init(text: Binding<String>) {
             _text = text
@@ -69,7 +73,16 @@ struct MarkdownTextEditor: NSViewRepresentable {
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
-            highlight()
+            guard let textView, let storage = textView.textStorage, !textView.hasMarkedText(), !isApplyingHighlight
+            else { return }
+            let selection = textView.selectedRange()
+            let lineLocation = activeLine(for: selection, in: storage.string).location
+            guard lineLocation != activeLineLocation else { return }
+
+            isApplyingHighlight = true
+            highlighter.updateMarkerVisibility(in: storage, selectedRange: selection)
+            activeLineLocation = lineLocation
+            isApplyingHighlight = false
         }
 
         func highlight() {
@@ -80,8 +93,15 @@ struct MarkdownTextEditor: NSViewRepresentable {
             isApplyingHighlight = true
             let selection = textView.selectedRange()
             highlighter.apply(to: storage, selectedRange: selection)
-            textView.setSelectedRange(selection)
+            activeLineLocation = activeLine(for: selection, in: storage.string).location
             isApplyingHighlight = false
+        }
+
+        private func activeLine(for selection: NSRange, in source: String) -> NSRange {
+            let string = source as NSString
+            guard string.length > 0 else { return NSRange(location: 0, length: 0) }
+            let location = min(selection.location, string.length - 1)
+            return string.lineRange(for: NSRange(location: location, length: 0))
         }
     }
 }
