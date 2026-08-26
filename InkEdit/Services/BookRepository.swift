@@ -213,7 +213,7 @@ struct BookRepository {
             at: directory,
             includingPropertiesForKeys: Array(keys),
             options: [.skipsHiddenFiles]
-        ).sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+        ).sorted { ProjectItemNameComparator.precedes($0.lastPathComponent, $1.lastPathComponent) }
 
         return try contents.compactMap { url in
             let values = try url.resourceValues(forKeys: keys)

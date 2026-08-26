@@ -38,6 +38,54 @@ struct BookRepositoryTests {
         #expect(try BookRepository().loadProject(at: root) == opened.metadata)
     }
 
+    @Test func importsChineseNumberedChaptersInNumericOrder() throws {
+        let parent = try temporaryDirectory()
+        let root = parent.appendingPathComponent("中文章节排序")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let fileNames = [
+            "第一百章.md", "第十一章.md", "第二章.md", "第二十一章.md", "第十章.md", "第一章.md", "第三章.md",
+        ]
+        for fileName in fileNames {
+            try "# \(fileName)".write(
+                to: root.appendingPathComponent(fileName),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+        defer { try? FileManager.default.removeItem(at: parent) }
+
+        let opened = try BookRepository().openOrImportFolder(root)
+
+        #expect(
+            opened.metadata.chapters.map(\.relativePath) == [
+                "第一章.md", "第二章.md", "第三章.md", "第十章.md", "第十一章.md", "第二十一章.md", "第一百章.md",
+            ])
+    }
+
+    @Test func importsChineseNumberedPartsInNumericOrder() throws {
+        let parent = try temporaryDirectory()
+        let root = parent.appendingPathComponent("中文分卷排序")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        for partName in ["第十卷", "第二卷", "第一卷"] {
+            let part = root.appendingPathComponent(partName, isDirectory: true)
+            try FileManager.default.createDirectory(at: part, withIntermediateDirectories: false)
+            try "# 第一章".write(
+                to: part.appendingPathComponent("第一章.md"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+        defer { try? FileManager.default.removeItem(at: parent) }
+
+        let opened = try BookRepository().openOrImportFolder(root)
+
+        #expect(opened.metadata.outline.map(\.title) == ["第一卷", "第二卷", "第十卷"])
+        #expect(
+            opened.metadata.chapters.map(\.relativePath) == [
+                "第一卷/第一章.md", "第二卷/第一章.md", "第十卷/第一章.md",
+            ])
+    }
+
     @Test func rejectsPathTraversal() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
