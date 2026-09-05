@@ -40,7 +40,7 @@ struct ExportBuilderTests {
         #expect(searchable.contains("长夜将尽"))
     }
 
-    @Test func packagesLocalImagesFromBookFolder() throws {
+    @Test func packagesLocalImagesFromBookFolder() async throws {
         let parent = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
@@ -57,7 +57,7 @@ struct ExportBuilderTests {
             in: opened.rootURL
         )
 
-        let publication = try BookExportService().publication(
+        let publication = try await BookExportService().publication(
             project: opened.metadata,
             rootURL: opened.rootURL
         )

@@ -11,14 +11,14 @@ enum BookExportError: LocalizedError {
     }
 }
 
-@MainActor
-struct BookExportService {
+actor BookExportService {
     private let repository = BookRepository()
     private let htmlRenderer = MarkdownHTMLRenderer()
 
     func publication(project: BookProject, rootURL: URL) throws -> PublicationDocument {
         let chapters = try project.chapters.map { chapter in
-            PublicationChapter(
+            try Task.checkCancellation()
+            return PublicationChapter(
                 id: chapter.id,
                 title: chapter.title,
                 markdown: try repository.readChapter(chapter, in: rootURL)
@@ -43,18 +43,20 @@ struct BookExportService {
         rootURL: URL,
         destinationURL: URL
     ) async throws {
+        try Task.checkCancellation()
         let publication = try publication(project: project, rootURL: rootURL)
         let data: Data
         switch format {
         case .html:
             data = Data(html(publication).utf8)
         case .pdf:
-            data = try await PDFDataExporter().render(html: html(publication), baseURL: rootURL)
+            data = try await PDFDataExporter.renderDocument(html: html(publication), baseURL: rootURL)
         case .epub:
             data = try EPUBBuilder().build(publication)
         case .docx:
             data = try DOCXBuilder().build(publication)
         }
+        try Task.checkCancellation()
         try AtomicFileWriter.write(data, to: destinationURL)
     }
 
@@ -83,6 +85,7 @@ struct BookExportService {
                 if !result.contains(reference) { result.append(reference) }
             }
         return try references.enumerated().compactMap { index, reference in
+            try Task.checkCancellation()
             guard
                 !reference.hasPrefix("#"),
                 URL(string: reference)?.scheme == nil

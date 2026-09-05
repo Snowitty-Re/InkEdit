@@ -8,14 +8,14 @@ struct DOCXBuilder {
             ZIPArchiveEntry(path: "[Content_Types].xml", data: data(contentTypes)),
             ZIPArchiveEntry(path: "_rels/.rels", data: data(packageRelationships)),
             ZIPArchiveEntry(path: "docProps/core.xml", data: data(coreProperties(publication))),
-            ZIPArchiveEntry(path: "word/document.xml", data: data(documentXML(publication))),
+            ZIPArchiveEntry(path: "word/document.xml", data: data(try documentXML(publication))),
             ZIPArchiveEntry(path: "word/styles.xml", data: data(stylesXML)),
             ZIPArchiveEntry(path: "word/_rels/document.xml.rels", data: data(documentRelationships)),
         ]
         return try archiveWriter.archive(entries: entries, date: publication.modifiedAt)
     }
 
-    private func documentXML(_ publication: PublicationDocument) -> String {
+    private func documentXML(_ publication: PublicationDocument) throws -> String {
         var paragraphs = [paragraph(publication.title, style: "Title")]
         if !publication.author.isEmpty {
             paragraphs.append(paragraph(publication.author, style: "Subtitle"))
@@ -24,8 +24,9 @@ struct DOCXBuilder {
             paragraphs.append(paragraph(publication.summary))
         }
         for chapter in publication.chapters {
+            try Task.checkCancellation()
             paragraphs.append(paragraph(chapter.title, style: "Heading1", pageBreakBefore: true))
-            paragraphs.append(contentsOf: markdownParagraphs(chapter.markdown))
+            paragraphs.append(contentsOf: try markdownParagraphs(chapter.markdown))
         }
         return """
             <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -41,8 +42,9 @@ struct DOCXBuilder {
             """
     }
 
-    private func markdownParagraphs(_ markdown: String) -> [String] {
-        markdown.components(separatedBy: .newlines).map { source in
+    private func markdownParagraphs(_ markdown: String) throws -> [String] {
+        try markdown.components(separatedBy: .newlines).map { source in
+            try Task.checkCancellation()
             let trimmed = source.trimmingCharacters(in: .whitespaces)
             guard !trimmed.isEmpty else { return "<w:p />" }
             let hashes = trimmed.prefix { $0 == "#" }

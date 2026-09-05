@@ -30,6 +30,7 @@ struct ZIPArchiveWriter {
         let timestamp = dosTimestamp(date)
 
         for entry in entries {
+            try Task.checkCancellation()
             try validate(path: entry.path)
             guard
                 let name = entry.path.data(using: .utf8),
@@ -38,7 +39,7 @@ struct ZIPArchiveWriter {
                 archive.count <= Int(UInt32.max)
             else { throw ZIPArchiveError.archiveTooLarge }
 
-            let checksum = CRC32.checksum(entry.data)
+            let checksum = try CRC32.checksum(entry.data)
             let size = UInt32(entry.data.count)
             let localOffset = UInt32(archive.count)
 
@@ -151,7 +152,7 @@ struct ZIPArchiveReader {
             guard let path = String(data: nameData, encoding: .utf8) else { throw ZIPArchiveError.invalidArchive }
             try validate(path: path)
             let data = archive.subdata(in: dataStart..<dataEnd)
-            guard CRC32.checksum(data) == checksum else { throw ZIPArchiveError.checksumMismatch(path) }
+            guard try CRC32.checksum(data) == checksum else { throw ZIPArchiveError.checksumMismatch(path) }
             entries.append(ZIPArchiveEntry(path: path, data: data))
             offset = dataEnd
         }
@@ -179,12 +180,15 @@ private enum CRC32 {
         return value
     }
 
-    static func checksum(_ data: Data) -> UInt32 {
-        var crc = UInt32.max
-        for byte in data {
-            crc = (crc >> 8) ^ table[Int((crc ^ UInt32(byte)) & 0xFF)]
+    static func checksum(_ data: Data) throws -> UInt32 {
+        try data.withUnsafeBytes { (bytes: UnsafeRawBufferPointer) in
+            var crc = UInt32.max
+            for index in bytes.indices {
+                if index.isMultiple(of: 65_536) { try Task.checkCancellation() }
+                crc = (crc >> 8) ^ table[Int((crc ^ UInt32(bytes[index])) & 0xFF)]
+            }
+            return crc ^ UInt32.max
         }
-        return crc ^ UInt32.max
     }
 }
 

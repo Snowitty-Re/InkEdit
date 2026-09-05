@@ -5,7 +5,8 @@ struct EPUBBuilder {
     private let archiveWriter = ZIPArchiveWriter()
 
     func build(_ publication: PublicationDocument) throws -> Data {
-        let chapterEntries = publication.chapters.enumerated().map { index, chapter in
+        let chapterEntries = try publication.chapters.enumerated().map { index, chapter in
+            try Task.checkCancellation()
             let filename = String(format: "chapter-%03d.xhtml", index + 1)
             return ZIPArchiveEntry(
                 path: "EPUB/text/\(filename)",

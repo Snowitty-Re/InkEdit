@@ -42,6 +42,10 @@ struct ContentView: View {
 
     private let repository = BookRepository()
 
+    init(initialProject: OpenBookProject? = nil) {
+        _activeProject = State(initialValue: initialProject)
+    }
+
     var body: some View {
         Group {
             if let activeProject {

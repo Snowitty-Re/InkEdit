@@ -10,6 +10,7 @@ struct ExportSheet: View {
     @State private var format = ExportFormat.epub
     @State private var isExporting = false
     @State private var errorMessage: String?
+    @State private var exportTask: Task<Void, Never>?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -26,6 +27,7 @@ struct ExportSheet: View {
                 }
             }
             .pickerStyle(.radioGroup)
+            .disabled(exportTask != nil)
 
             GroupBox {
                 Text(formatDescription)
@@ -36,11 +38,15 @@ struct ExportSheet: View {
 
             HStack {
                 Spacer()
-                Button("取消") { dismiss() }
-                    .keyboardShortcut(.cancelAction)
+                Button("取消") {
+                    exportTask?.cancel()
+                    dismiss()
+                }
+                .keyboardShortcut(.cancelAction)
                 Button("选择位置并导出") { chooseDestinationAndExport() }
                     .keyboardShortcut(.defaultAction)
-                    .disabled(isExporting)
+                    .disabled(exportTask != nil)
+                    .accessibilityIdentifier("choose-export-destination")
             }
         }
         .padding(24)
@@ -53,8 +59,10 @@ struct ExportSheet: View {
                         .padding(20)
                         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
                 }
+                .allowsHitTesting(false)
             }
         }
+        .onDisappear { exportTask?.cancel() }
         .alert("导出失败", isPresented: errorBinding) {
             Button("好", role: .cancel) { errorMessage = nil }
         } message: {
@@ -84,19 +92,32 @@ struct ExportSheet: View {
         panel.nameFieldStringValue = "\(safeFilename(project.title)).\(format.filenameExtension)"
         panel.allowedContentTypes = [format.contentType]
         panel.canCreateDirectories = true
-        guard panel.runModal() == .OK, let destinationURL = panel.url else { return }
-
-        isExporting = true
-        Task { @MainActor in
-            defer { isExporting = false }
+        panel.directoryURL = rootURL
+        let selectedFormat = format
+        exportTask = Task { @MainActor in
+            defer {
+                isExporting = false
+                exportTask = nil
+            }
+            let response: NSApplication.ModalResponse
+            if let window = NSApp.keyWindow {
+                response = await panel.beginSheetModal(for: window)
+            } else {
+                response = await panel.begin()
+            }
+            guard response == .OK, let destinationURL = panel.url, !Task.isCancelled else { return }
+            isExporting = true
             do {
                 try await BookExportService().export(
-                    format,
+                    selectedFormat,
                     project: project,
                     rootURL: rootURL,
                     destinationURL: destinationURL
                 )
+                try Task.checkCancellation()
                 dismiss()
+            } catch is CancellationError {
+                return
             } catch {
                 errorMessage = error.localizedDescription
             }
