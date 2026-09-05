@@ -128,6 +128,7 @@ struct BookWorkspaceView: View {
                     switch mode {
                     case .write:
                         MarkdownTextEditor(text: chapterTextBinding)
+                            .id(chapter.id)
                             .background(Color(nsColor: .textBackgroundColor))
                     case .read:
                         ReaderView(

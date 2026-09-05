@@ -44,14 +44,7 @@ struct MarkdownTextEditor: NSViewRepresentable {
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        guard let textView = scrollView.documentView as? NSTextView, textView.string != text else { return }
-        let selection = textView.selectedRange()
-        textView.string = text
-        let textLength = (textView.string as NSString).length
-        let location = min(selection.location, textLength)
-        let length = min(selection.length, max(0, textLength - location))
-        textView.setSelectedRange(NSRange(location: location, length: length))
-        context.coordinator.highlight()
+        context.coordinator.synchronize(text: $text)
     }
 
     @MainActor
@@ -60,14 +53,31 @@ struct MarkdownTextEditor: NSViewRepresentable {
         weak var textView: NSTextView?
         private let highlighter = MarkdownSyntaxHighlighter()
         private var isApplyingHighlight = false
+        private var isApplyingModelText = false
         private var activeLineLocation: Int?
 
         init(text: Binding<String>) {
             _text = text
         }
 
+        func synchronize(text: Binding<String>) {
+            _text = text
+            // SwiftUI also updates this view when the autosave status changes. The input
+            // method owns marked text until it commits; assigning string here discards it.
+            guard let textView, !textView.hasMarkedText(), textView.string != text.wrappedValue else { return }
+            isApplyingModelText = true
+            defer { isApplyingModelText = false }
+            let selection = textView.selectedRange()
+            textView.string = text.wrappedValue
+            let textLength = (textView.string as NSString).length
+            let location = min(selection.location, textLength)
+            let length = min(selection.length, textLength - location)
+            textView.setSelectedRange(NSRange(location: location, length: length))
+            highlight()
+        }
+
         func textDidChange(_ notification: Notification) {
-            guard let textView, !isApplyingHighlight else { return }
+            guard let textView, !textView.hasMarkedText(), !isApplyingHighlight, !isApplyingModelText else { return }
             text = textView.string
             highlight()
         }
