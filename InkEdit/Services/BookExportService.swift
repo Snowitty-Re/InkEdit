@@ -38,7 +38,10 @@ actor BookExportService {
             summary: project.summary,
             modifiedAt: project.modifiedAt,
             chapters: chapters,
-            resources: try resources(in: chapters, rootURL: rootURL)
+            resources: try resources(in: chapters, rootURL: rootURL),
+            coverPNG: try project.coverRelativePath.map {
+                try CoverImageProcessor.read(from: repository.safeURL(for: $0, in: rootURL))
+            }
         )
     }
 
@@ -71,13 +74,21 @@ actor BookExportService {
             in: publication.combinedMarkdown,
             resources: publication.resources
         )
-        return htmlRenderer.render(
+        let rendered = htmlRenderer.render(
             markdown: markdown,
             title: publication.title,
             theme: .light,
             annotations: [],
             interactive: false
         )
+        guard let cover = publication.coverPNG else { return rendered }
+        let coverPage = """
+            <section aria-label="封面" style="text-align:center;break-after:page;page-break-after:always">
+              <img alt="封面" src="data:image/png;base64,\(cover.base64EncodedString())"
+                   style="max-width:100%;max-height:850px;object-fit:contain" />
+            </section>
+            """
+        return rendered.replacingOccurrences(of: "<body>", with: "<body>\(coverPage)")
     }
 
     private func resources(

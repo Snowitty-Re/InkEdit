@@ -86,6 +86,7 @@ struct PublicationDocument: Equatable, Sendable {
     var modifiedAt: Date
     var chapters: [PublicationChapter]
     var resources: [PublicationResource] = []
+    var coverPNG: Data? = nil
 
     var combinedMarkdown: String {
         var sections = ["# \(title)"]

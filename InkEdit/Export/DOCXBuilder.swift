@@ -1,22 +1,30 @@
 import Foundation
+import ImageIO
 
 struct DOCXBuilder {
     private let archiveWriter = ZIPArchiveWriter()
 
     func build(_ publication: PublicationDocument) throws -> Data {
-        let entries = [
+        var entries = [
             ZIPArchiveEntry(path: "[Content_Types].xml", data: data(contentTypes)),
             ZIPArchiveEntry(path: "_rels/.rels", data: data(packageRelationships)),
             ZIPArchiveEntry(path: "docProps/core.xml", data: data(coreProperties(publication))),
             ZIPArchiveEntry(path: "word/document.xml", data: data(try documentXML(publication))),
             ZIPArchiveEntry(path: "word/styles.xml", data: data(stylesXML)),
-            ZIPArchiveEntry(path: "word/_rels/document.xml.rels", data: data(documentRelationships)),
+            ZIPArchiveEntry(path: "word/_rels/document.xml.rels", data: data(documentRelationships(publication))),
         ]
+        if let cover = publication.coverPNG {
+            entries.append(ZIPArchiveEntry(path: "word/media/cover.png", data: cover))
+        }
         return try archiveWriter.archive(entries: entries, date: publication.modifiedAt)
     }
 
     private func documentXML(_ publication: PublicationDocument) throws -> String {
         var paragraphs = [paragraph(publication.title, style: "Title")]
+        if let cover = publication.coverPNG {
+            paragraphs.insert(try coverParagraph(cover), at: 0)
+            paragraphs[1] = paragraph(publication.title, style: "Title", pageBreakBefore: true)
+        }
         if !publication.author.isEmpty {
             paragraphs.append(paragraph(publication.author, style: "Subtitle"))
         }
@@ -30,7 +38,11 @@ struct DOCXBuilder {
         }
         return """
             <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-            <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+              xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+              xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+              xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+              xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">
               <w:body>
                 \(paragraphs.joined(separator: "\n"))
                 <w:sectPr>
@@ -39,6 +51,33 @@ struct DOCXBuilder {
                 </w:sectPr>
               </w:body>
             </w:document>
+            """
+    }
+
+    private func coverParagraph(_ data: Data) throws -> String {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+            let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+            let width = properties[kCGImagePropertyPixelWidth] as? Double,
+            let height = properties[kCGImagePropertyPixelHeight] as? Double,
+            width > 0, height > 0
+        else { throw BookDetailsError.invalidImage }
+        // Fit within A4 content margins, retaining the cover's aspect ratio.
+        let scale = min(5_700_000 / width, 8_000_000 / height)
+        let cx = Int(width * scale)
+        let cy = Int(height * scale)
+        return """
+            <w:p><w:pPr><w:jc w:val="center" /></w:pPr><w:r><w:drawing>
+              <wp:inline distT="0" distB="0" distL="0" distR="0">
+                <wp:extent cx="\(cx)" cy="\(cy)" /><wp:docPr id="1" name="封面" />
+                <a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
+                  <pic:pic><pic:nvPicPr><pic:cNvPr id="0" name="cover.png" /><pic:cNvPicPr /></pic:nvPicPr>
+                    <pic:blipFill><a:blip r:embed="rIdCover" /><a:stretch><a:fillRect /></a:stretch></pic:blipFill>
+                    <pic:spPr><a:xfrm><a:off x="0" y="0" /><a:ext cx="\(cx)" cy="\(cy)" /></a:xfrm>
+                      <a:prstGeom prst="rect"><a:avLst /></a:prstGeom></pic:spPr>
+                  </pic:pic>
+                </a:graphicData></a:graphic>
+              </wp:inline>
+            </w:drawing></w:r></w:p>
             """
     }
 
@@ -107,6 +146,7 @@ struct DOCXBuilder {
         <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
           <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml" />
           <Default Extension="xml" ContentType="application/xml" />
+          <Default Extension="png" ContentType="image/png" />
           <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml" />
           <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml" />
           <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml" />
@@ -124,13 +164,20 @@ struct DOCXBuilder {
         """
     }
 
-    private var documentRelationships: String {
-        """
-        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-        <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-          <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml" />
-        </Relationships>
-        """
+    private func documentRelationships(_ publication: PublicationDocument) -> String {
+        let cover =
+            publication.coverPNG == nil
+            ? ""
+            : """
+            <Relationship Id="rIdCover" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/cover.png" />
+            """
+        return """
+            <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+            <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+              <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml" />
+              \(cover)
+            </Relationships>
+            """
     }
 
     private var stylesXML: String {
