@@ -15,8 +15,13 @@ actor BookExportService {
     private let repository = BookRepository()
     private let htmlRenderer = MarkdownHTMLRenderer()
 
-    func publication(project: BookProject, rootURL: URL) throws -> PublicationDocument {
-        let chapters = try project.chapters.map { chapter in
+    func publication(
+        project: BookProject, rootURL: URL, chapterIDs: Set<UUID>? = nil
+    ) throws -> PublicationDocument {
+        // Filter before reading files or collecting resources so excluded chapters never
+        // contribute text, images or navigation entries to any export format.
+        let selectedChapters = project.chapters.filter { chapterIDs?.contains($0.id) ?? true }
+        let chapters = try selectedChapters.map { chapter in
             try Task.checkCancellation()
             return PublicationChapter(
                 id: chapter.id,
@@ -41,10 +46,11 @@ actor BookExportService {
         _ format: ExportFormat,
         project: BookProject,
         rootURL: URL,
-        destinationURL: URL
+        destinationURL: URL,
+        chapterIDs: Set<UUID>? = nil
     ) async throws {
         try Task.checkCancellation()
-        let publication = try publication(project: project, rootURL: rootURL)
+        let publication = try publication(project: project, rootURL: rootURL, chapterIDs: chapterIDs)
         let data: Data
         switch format {
         case .html:

@@ -11,10 +11,16 @@ struct InkEditApp: App {
             do {
                 try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
                 let repository = BookRepository()
-                let project = try repository.createBook(title: "导出回归", author: "作者", in: parent)
+                var project = try repository.createBook(title: "导出回归", author: "作者", in: parent)
                 if let chapter = project.metadata.chapters.first {
                     try repository.writeChapter(
                         "# 第一章\n\n这是中文导出测试书稿。\n\n**重点**和普通正文。", chapter: chapter, in: project.rootURL)
+                }
+                if arguments.contains("-ui-testing-export-range") {
+                    for title in ["第二章", "第三章"] {
+                        project.metadata = try repository.addChapter(
+                            title: title, to: project.metadata, in: project.rootURL)
+                    }
                 }
                 return project
             } catch { fatalError("Could not create export test fixture: \(error)") }
@@ -37,8 +43,37 @@ struct InkEditApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView(initialProject: exportTestProject)
+            #if DEBUG
+                if ProcessInfo.processInfo.arguments.contains("-ui-testing-export-panel"), let exportTestProject {
+                    ExportPanelTestHost(project: exportTestProject)
+                } else {
+                    ContentView(initialProject: exportTestProject)
+                }
+            #else
+                ContentView(initialProject: exportTestProject)
+            #endif
         }
         .modelContainer(modelContainer)
     }
 }
+
+#if DEBUG
+    /// Allows export panel tests to run independently of the editor's AppKit layout.
+    private struct ExportPanelTestHost: View {
+        let project: OpenBookProject
+        @State private var showsExport = false
+
+        var body: some View {
+            Button("导出书籍") { showsExport = true }
+                .accessibilityIdentifier("export-test-open")
+                .keyboardShortcut("e", modifiers: [.command, .shift])
+                .frame(width: 900, height: 760)
+                .sheet(isPresented: $showsExport) {
+                    ExportSheet(
+                        project: project.metadata, rootURL: project.rootURL,
+                        currentChapterID: project.metadata.chapters.dropFirst().first?.id
+                            ?? project.metadata.chapters.first?.id)
+                }
+        }
+    }
+#endif

@@ -170,7 +170,7 @@ struct BookWorkspaceView: View {
             NotesInspectorView(model: model)
         }
         .sheet(isPresented: $showsExport) {
-            ExportSheet(project: model.project, rootURL: model.rootURL)
+            ExportSheet(project: model.project, rootURL: model.rootURL, currentChapterID: model.selectedChapterID)
         }
         .sheet(isPresented: $showsCloudSync) {
             CloudSyncSheet(

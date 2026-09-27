@@ -6,6 +6,75 @@ import Testing
 
 @MainActor
 struct BookExportServiceTests {
+    @Test(arguments: ExportFormat.allCases)
+    func exportsOnlySelectedChaptersInEveryFormat(_ format: ExportFormat) async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let project = try manuscript(in: root, chapterCount: 5, paragraphCount: 1)
+        var selection = ExportChapterSelection(chapters: project.chapters, currentChapterID: project.chapters[3].id)
+        selection.scope = .partial
+        selection.startChapterID = project.chapters[1].id
+        selection.excludedChapterIDs = [project.chapters[2].id]
+        let ids = Set(selection.selectedChapters(in: project.chapters).map(\.id))
+        let destination = root.appendingPathComponent("部分成书.\(format.filenameExtension)")
+        try await BookExportService().export(
+            format, project: project, rootURL: root, destinationURL: destination, chapterIDs: ids)
+
+        let text: String
+        switch format {
+        case .html:
+            text = try String(contentsOf: destination, encoding: .utf8)
+        case .pdf:
+            text = try #require(PDFDocument(url: destination)?.string)
+        case .epub, .docx:
+            let entries = try ZIPArchiveReader().entries(in: Data(contentsOf: destination))
+            text = entries.map { String(decoding: $0.data, as: UTF8.self) }.joined()
+            if format == .epub {
+                #expect(entries.filter { $0.path.hasPrefix("EPUB/text/") }.count == 2)
+                let navigation = try #require(entries.first { $0.path == "EPUB/nav.xhtml" })
+                let contents = String(decoding: navigation.data, as: UTF8.self)
+                #expect(contents.contains("第2章"))
+                #expect(contents.contains("第4章"))
+                #expect(!contents.contains("第3章"))
+            }
+        }
+        #expect(text.contains("章节终点2"))
+        #expect(text.contains("章节终点4"))
+        for index in [1, 3, 5] {
+            #expect(!text.contains("章节终点\(index)"))
+        }
+        #expect(try #require(text.range(of: "章节终点2")).lowerBound < #require(text.range(of: "章节终点4")).lowerBound)
+    }
+
+    @Test func excludedChaptersAreNotReadAndTheirImagesAreNotCollected() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let project = try manuscript(in: root, chapterCount: 3, paragraphCount: 1)
+        try "![保留](keep.png)".write(to: root.appendingPathComponent("第1章.md"), atomically: true, encoding: .utf8)
+        try "![排除](omit.png)".write(to: root.appendingPathComponent("第2章.md"), atomically: true, encoding: .utf8)
+        try Data([1]).write(to: root.appendingPathComponent("keep.png"))
+        try Data([2]).write(to: root.appendingPathComponent("omit.png"))
+        try FileManager.default.removeItem(at: root.appendingPathComponent("第3章.md"))
+        let publication = try await BookExportService().publication(
+            project: project, rootURL: root, chapterIDs: [project.chapters[0].id])
+        #expect(publication.chapters.map(\.id) == [project.chapters[0].id])
+        #expect(publication.resources.map(\.sourceReference) == ["keep.png"])
+    }
+
+    @Test func emptySelectionDoesNotOverwriteDestination() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let project = try manuscript(in: root, chapterCount: 1, paragraphCount: 1)
+        let destination = root.appendingPathComponent("成书.html")
+        try Data("已有导出".utf8).write(to: destination)
+        do {
+            try await BookExportService().export(
+                .html, project: project, rootURL: root, destinationURL: destination, chapterIDs: [])
+            Issue.record("Empty selection unexpectedly exported the book")
+        } catch BookExportError.noChapters {}
+        #expect(try String(contentsOf: destination, encoding: .utf8) == "已有导出")
+    }
+
     @Test(arguments: [ExportFormat.epub, .docx])
     func exportsLargeManuscriptWhileMainActorRemainsResponsive(_ format: ExportFormat) async throws {
         let root = try temporaryDirectory()

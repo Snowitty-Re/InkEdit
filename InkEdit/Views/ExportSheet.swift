@@ -11,15 +11,30 @@ struct ExportSheet: View {
     @State private var isExporting = false
     @State private var errorMessage: String?
     @State private var exportTask: Task<Void, Never>?
+    @State private var chapterSelection: ExportChapterSelection
+
+    init(project: BookProject, rootURL: URL, currentChapterID: UUID? = nil) {
+        self.project = project
+        self.rootURL = rootURL
+        _chapterSelection = State(
+            initialValue: ExportChapterSelection(chapters: project.chapters, currentChapterID: currentChapterID))
+    }
+
+    private var selectedChapters: [BookOutlineNode] {
+        chapterSelection.selectedChapters(in: project.chapters)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("导出《\(project.title)》")
                     .font(.title2.weight(.semibold))
-                Text("所有章节将按书籍目录顺序合并，原始 Markdown 不会被修改。")
+                Text("所选章节将按书籍目录顺序合并，原始 Markdown 不会被修改。")
                     .foregroundStyle(.secondary)
             }
+
+            chapterOptions
+                .disabled(exportTask != nil)
 
             Picker("文件格式", selection: $format) {
                 ForEach(ExportFormat.allCases) { format in
@@ -45,12 +60,12 @@ struct ExportSheet: View {
                 .keyboardShortcut(.cancelAction)
                 Button("选择位置并导出") { chooseDestinationAndExport() }
                     .keyboardShortcut(.defaultAction)
-                    .disabled(exportTask != nil)
+                    .disabled(exportTask != nil || selectedChapters.isEmpty)
                     .accessibilityIdentifier("choose-export-destination")
             }
         }
         .padding(24)
-        .frame(width: 480)
+        .frame(width: 560)
         .overlay {
             if isExporting {
                 ZStack {
@@ -70,6 +85,87 @@ struct ExportSheet: View {
         }
     }
 
+    private var chapterOptions: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Picker("导出范围", selection: $chapterSelection.scope) {
+                ForEach(ExportChapterSelection.Scope.allCases) { scope in
+                    Text(scope.title).tag(scope)
+                }
+            }
+            .pickerStyle(.segmented)
+            .accessibilityIdentifier("export-scope")
+
+            if chapterSelection.scope == .partial {
+                HStack {
+                    chapterPicker("从", selection: $chapterSelection.startChapterID)
+                        .accessibilityIdentifier("export-start-chapter")
+                    chapterPicker("至", selection: $chapterSelection.endChapterID)
+                        .accessibilityIdentifier("export-end-chapter")
+                }
+                Text("默认从首章到当前章节（含）；取消勾选可排除章节。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                let chaptersInRange = chapterSelection.chaptersInRange(in: project.chapters)
+                if chaptersInRange.isEmpty {
+                    Text("请选择有效范围，起始章节不能晚于截止章节。")
+                        .foregroundStyle(.orange)
+                } else {
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 8) {
+                            ForEach(chaptersInRange) { chapter in
+                                Toggle(isOn: inclusionBinding(for: chapter.id)) {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(chapter.title)
+                                        Text(chapter.relativePath ?? "")
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                .toggleStyle(.checkbox)
+                                .accessibilityIdentifier("export-include-\(chapter.title)")
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(8)
+                    }
+                    .frame(height: 140)
+                    .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 6))
+                }
+            }
+
+            Text("已选择 \(selectedChapters.count) / \(project.chapters.count) 章")
+                .font(.callout)
+                .foregroundStyle(selectedChapters.isEmpty ? .orange : .secondary)
+                .accessibilityIdentifier("export-chapter-count")
+            if selectedChapters.isEmpty {
+                Text("请至少选择一个章节后再导出。")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+        }
+    }
+
+    private func chapterPicker(_ title: String, selection: Binding<UUID?>) -> some View {
+        Picker(title, selection: selection) {
+            ForEach(Array(project.chapters.enumerated()), id: \.element.id) { index, chapter in
+                Text("\(index + 1). \(chapter.title)").tag(Optional(chapter.id))
+            }
+        }
+    }
+
+    private func inclusionBinding(for chapterID: UUID) -> Binding<Bool> {
+        Binding(
+            get: { !chapterSelection.excludedChapterIDs.contains(chapterID) },
+            set: { included in
+                if included {
+                    chapterSelection.excludedChapterIDs.remove(chapterID)
+                } else {
+                    chapterSelection.excludedChapterIDs.insert(chapterID)
+                }
+            })
+    }
+
     private var formatDescription: String {
         switch format {
         case .html: "生成可离线阅读的单文件网页，本地插图会以内嵌资源保存。"
@@ -87,6 +183,8 @@ struct ExportSheet: View {
     }
 
     private func chooseDestinationAndExport() {
+        let chapterIDs = Set(selectedChapters.map(\.id))
+        guard !chapterIDs.isEmpty else { return }
         let panel = NSSavePanel()
         panel.title = "导出《\(project.title)》"
         panel.nameFieldStringValue = "\(safeFilename(project.title)).\(format.filenameExtension)"
@@ -112,7 +210,8 @@ struct ExportSheet: View {
                     selectedFormat,
                     project: project,
                     rootURL: rootURL,
-                    destinationURL: destinationURL
+                    destinationURL: destinationURL,
+                    chapterIDs: chapterIDs
                 )
                 try Task.checkCancellation()
                 dismiss()
