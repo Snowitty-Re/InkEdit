@@ -22,19 +22,25 @@ final class BookWorkspaceModel {
 
     private let repository: BookRepository
     private let annotationRepository: AnnotationRepository
-    private var savedText = ""
-    private var editRevision = 0
-    private var saveTask: Task<Void, Never>?
+    @ObservationIgnored private var needsSave = false
+    @ObservationIgnored private var editRevision = 0
+    @ObservationIgnored private var saveTask: Task<Void, Never>?
+    @ObservationIgnored private var editorIsBusy = false
+    @ObservationIgnored private var saveGeneration = 0
+    private let autosaveIdleDuration: Duration
+    private let chapterWriteQueue = DispatchQueue(label: "InkEdit.chapter-writes", qos: .utility)
 
     init(
         project: OpenBookProject,
         repository: BookRepository = BookRepository(),
-        annotationRepository: AnnotationRepository = AnnotationRepository()
+        annotationRepository: AnnotationRepository = AnnotationRepository(),
+        autosaveIdleDuration: Duration = .seconds(5)
     ) {
         rootURL = project.rootURL
         self.project = project.metadata
         self.repository = repository
         self.annotationRepository = annotationRepository
+        self.autosaveIdleDuration = autosaveIdleDuration
         selectedChapterID = project.metadata.chapters.first?.id
     }
 
@@ -76,9 +82,16 @@ final class BookWorkspaceModel {
     func updateText(_ text: String) {
         guard chapterText != text else { return }
         chapterText = text
+        needsSave = true
         editRevision += 1
         saveState = .unsaved
-        scheduleSave(revision: editRevision)
+        scheduleSave()
+    }
+
+    func recordEditorActivity(isBusy: Bool, chapterID: UUID) {
+        guard chapterID == selectedChapterID else { return }
+        editorIsBusy = isBusy
+        scheduleSave()
     }
 
     func addChapter(title: String) {
@@ -93,11 +106,15 @@ final class BookWorkspaceModel {
     }
 
     func flushCurrentChapter() {
-        saveTask?.cancel()
-        guard chapterText != savedText, let chapter = selectedChapter else { return }
+        cancelScheduledSave()
+        guard needsSave, let chapter = selectedChapter else { return }
         do {
-            try repository.writeChapter(chapterText, chapter: chapter, in: rootURL)
-            savedText = chapterText
+            // Wait for any already-started autosave before writing the newest version.
+            // Cancelling a task alone cannot stop an atomic file write in progress.
+            try chapterWriteQueue.sync {
+                try repository.writeChapter(chapterText, chapter: chapter, in: rootURL)
+            }
+            needsSave = false
             saveState = .saved(.now)
         } catch {
             saveState = .failed(error.localizedDescription)
@@ -110,7 +127,7 @@ final class BookWorkspaceModel {
     }
 
     func reloadAfterExternalChange() {
-        saveTask?.cancel()
+        cancelScheduledSave()
         do {
             project = try repository.loadProject(at: rootURL)
             if !chapters.contains(where: { $0.id == selectedChapterID }) {
@@ -169,46 +186,70 @@ final class BookWorkspaceModel {
     }
 
     private func loadSelectedChapter() {
-        saveTask?.cancel()
+        cancelScheduledSave()
+        editorIsBusy = false
         guard let chapter = selectedChapter else {
             chapterText = ""
-            savedText = ""
+            needsSave = false
             return
         }
         do {
             let content = try repository.readChapter(chapter, in: rootURL)
             chapterText = content
-            savedText = content
+            needsSave = false
             saveState = .saved(.now)
         } catch {
             errorMessage = error.localizedDescription
         }
     }
 
-    private func scheduleSave(revision: Int) {
+    private func cancelScheduledSave() {
         saveTask?.cancel()
+        saveTask = nil
+        saveGeneration += 1
+    }
+
+    private func scheduleSave() {
+        cancelScheduledSave()
         guard
+            !editorIsBusy, needsSave,
             let chapter = selectedChapter,
             let relativePath = chapter.relativePath,
             let destinationURL = try? repository.safeURL(for: relativePath, in: rootURL)
         else { return }
         let content = chapterText
+        let revision = editRevision
+        let generation = saveGeneration
+        let deadline = ContinuousClock.now + autosaveIdleDuration
         saveTask = Task { [weak self] in
             do {
-                try await Task.sleep(for: .milliseconds(500))
-                guard !Task.isCancelled else { return }
-                self?.saveState = .saving
-                try await Task.detached(priority: .utility) {
-                    try AtomicFileWriter.write(content, to: destinationURL)
-                }.value
-                guard let self, revision == self.editRevision else { return }
-                self.savedText = content
+                try await Task.sleep(until: deadline, clock: .continuous)
+                guard let self, !Task.isCancelled, generation == self.saveGeneration, !self.editorIsBusy else {
+                    return
+                }
+                self.saveState = .saving
+                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                    self.chapterWriteQueue.async {
+                        do {
+                            try AtomicFileWriter.write(content, to: destinationURL)
+                            continuation.resume()
+                        } catch {
+                            continuation.resume(throwing: error)
+                        }
+                    }
+                }
+                guard
+                    !Task.isCancelled, generation == self.saveGeneration,
+                    chapter.id == self.selectedChapterID, revision == self.editRevision
+                else { return }
+                self.needsSave = false
                 self.saveState = .saved(.now)
             } catch is CancellationError {
                 return
             } catch {
-                self?.saveState = .failed(error.localizedDescription)
-                self?.errorMessage = error.localizedDescription
+                guard let self, !Task.isCancelled, generation == self.saveGeneration else { return }
+                self.saveState = .failed(error.localizedDescription)
+                self.errorMessage = error.localizedDescription
             }
         }
     }

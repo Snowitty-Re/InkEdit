@@ -127,9 +127,11 @@ struct BookWorkspaceView: View {
 
                     switch mode {
                     case .write:
-                        MarkdownTextEditor(text: chapterTextBinding)
-                            .id(chapter.id)
-                            .background(Color(nsColor: .textBackgroundColor))
+                        MarkdownTextEditor(text: chapterTextBinding) { isBusy in
+                            model.recordEditorActivity(isBusy: isBusy, chapterID: chapter.id)
+                        }
+                        .id(chapter.id)
+                        .background(Color(nsColor: .textBackgroundColor))
                     case .read:
                         ReaderView(
                             markdown: model.chapterText,
@@ -178,6 +180,10 @@ struct BookWorkspaceView: View {
             )
         }
         .onAppear { model.start() }
+        .onDisappear { model.flushCurrentChapter() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
+            model.flushCurrentChapter()
+        }
         .alert("新建章节", isPresented: $showsNewChapter) {
             TextField("章节标题", text: $newChapterTitle)
             Button("取消", role: .cancel) {}

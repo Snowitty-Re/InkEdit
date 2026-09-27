@@ -3,13 +3,17 @@ import SwiftUI
 
 struct MarkdownTextEditor: NSViewRepresentable {
     @Binding var text: String
+    var onActivity: (Bool) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text)
+        Coordinator(text: $text, onActivity: onActivity)
     }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let textView = NSTextView(frame: .zero)
+        let textView = ActivityTextView(frame: .zero)
+        textView.onActivity = { [weak coordinator = context.coordinator] isBusy in
+            coordinator?.onActivity(isBusy)
+        }
         textView.delegate = context.coordinator
         textView.isRichText = false
         textView.importsGraphics = false
@@ -44,20 +48,81 @@ struct MarkdownTextEditor: NSViewRepresentable {
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        context.coordinator.onActivity = onActivity
         context.coordinator.synchronize(text: $text)
+    }
+
+    /// Native input methods and mouse tracking may run without publishing any text changes.
+    /// Keep autosave suspended until the entire interaction (including composition) ends.
+    @MainActor
+    final class ActivityTextView: NSTextView {
+        var onActivity: (Bool) -> Void = { _ in }
+        private var interactionDepth = 0
+
+        func reportActivity() {
+            onActivity(interactionDepth > 0 || hasMarkedText())
+        }
+
+        private func beginInteraction() {
+            interactionDepth += 1
+            reportActivity()
+        }
+
+        private func endInteraction() {
+            interactionDepth -= 1
+            reportActivity()
+        }
+
+        override func keyDown(with event: NSEvent) {
+            beginInteraction()
+            defer { endInteraction() }
+            super.keyDown(with: event)
+        }
+
+        override func mouseDown(with event: NSEvent) {
+            beginInteraction()
+            defer { endInteraction() }
+            super.mouseDown(with: event)
+        }
+
+        override func scrollWheel(with event: NSEvent) {
+            beginInteraction()
+            defer { endInteraction() }
+            super.scrollWheel(with: event)
+        }
+
+        override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+            beginInteraction()
+            defer { endInteraction() }
+            super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
+        }
+
+        override func insertText(_ string: Any, replacementRange: NSRange) {
+            beginInteraction()
+            defer { endInteraction() }
+            super.insertText(string, replacementRange: replacementRange)
+        }
+
+        override func unmarkText() {
+            beginInteraction()
+            defer { endInteraction() }
+            super.unmarkText()
+        }
     }
 
     @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate {
         @Binding private var text: String
         weak var textView: NSTextView?
+        var onActivity: (Bool) -> Void
         private let highlighter = MarkdownSyntaxHighlighter()
         private var isApplyingHighlight = false
         private var isApplyingModelText = false
         private var activeLineLocation: Int?
 
-        init(text: Binding<String>) {
+        init(text: Binding<String>, onActivity: @escaping (Bool) -> Void = { _ in }) {
             _text = text
+            self.onActivity = onActivity
         }
 
         func synchronize(text: Binding<String>) {
@@ -77,14 +142,18 @@ struct MarkdownTextEditor: NSViewRepresentable {
         }
 
         func textDidChange(_ notification: Notification) {
-            guard let textView, !textView.hasMarkedText(), !isApplyingHighlight, !isApplyingModelText else { return }
+            guard let textView, !isApplyingHighlight, !isApplyingModelText else { return }
+            reportActivity()
+            guard !textView.hasMarkedText() else { return }
             text = textView.string
             highlight()
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
-            guard let textView, let storage = textView.textStorage, !textView.hasMarkedText(), !isApplyingHighlight
+            guard let textView, let storage = textView.textStorage, !isApplyingHighlight, !isApplyingModelText
             else { return }
+            reportActivity()
+            guard !textView.hasMarkedText() else { return }
             let selection = textView.selectedRange()
             let lineLocation = activeLine(for: selection, in: storage.string).location
             guard lineLocation != activeLineLocation else { return }
@@ -93,6 +162,14 @@ struct MarkdownTextEditor: NSViewRepresentable {
             highlighter.updateMarkerVisibility(in: storage, selectedRange: selection)
             activeLineLocation = lineLocation
             isApplyingHighlight = false
+        }
+
+        private func reportActivity() {
+            if let textView = textView as? ActivityTextView {
+                textView.reportActivity()
+            } else if let textView {
+                onActivity(textView.hasMarkedText())
+            }
         }
 
         func highlight() {

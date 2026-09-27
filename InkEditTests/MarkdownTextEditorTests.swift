@@ -6,17 +6,22 @@ import Testing
 
 @MainActor
 struct MarkdownTextEditorTests {
-    @Test func autosaveDuringCompositionPreservesMarkedTextAndSavesOnlyCommittedText() async throws {
+    @Test func autosaveWaitsForCompositionToEndAndThenForIdle() async throws {
         let parent = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let repository = BookRepository()
         try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: parent) }
         let project = try repository.createBook(title: "输入法回归", author: "", in: parent)
-        let model = BookWorkspaceModel(project: project)
+        let model = BookWorkspaceModel(project: project, autosaveIdleDuration: .milliseconds(200))
         model.start()
+        let originalText = model.chapterText
+        let chapter = try #require(project.metadata.chapters.first)
         let binding = Binding(get: { model.chapterText }, set: { model.updateText($0) })
-        let coordinator = MarkdownTextEditor.Coordinator(text: binding)
-        let textView = NSTextView()
+        let coordinator = MarkdownTextEditor.Coordinator(text: binding) { isBusy in
+            model.recordEditorActivity(isBusy: isBusy, chapterID: chapter.id)
+        }
+        let textView = MarkdownTextEditor.ActivityTextView()
+        textView.onActivity = coordinator.onActivity
         coordinator.textView = textView
         textView.delegate = coordinator
         textView.string = "已经确认"
@@ -28,22 +33,54 @@ struct MarkdownTextEditorTests {
         coordinator.textDidChange(Notification(name: NSText.didChangeNotification, object: textView))
         let selection = textView.selectedRange()
 
-        // The save scheduled before composition completes and refreshes SwiftUI.
-        try await waitForAutosave(model)
+        // Even a long pause at the candidate window must not save or refresh status.
+        try await Task.sleep(for: .milliseconds(450))
         coordinator.synchronize(text: binding)
 
         #expect(textView.hasMarkedText())
         #expect(textView.string == "已经确认zhongwen")
         #expect(textView.selectedRange() == selection)
         #expect(model.chapterText == "已经确认")
-        let chapter = try #require(project.metadata.chapters.first)
-        #expect(try repository.readChapter(chapter, in: project.rootURL) == "已经确认")
+        #expect(model.saveState == .unsaved)
+        #expect(try repository.readChapter(chapter, in: project.rootURL) == originalText)
 
         textView.insertText("中文", replacementRange: NSRange(location: NSNotFound, length: 0))
         #expect(!textView.hasMarkedText())
         #expect(model.chapterText == "已经确认中文")
+        try await Task.sleep(for: .milliseconds(80))
+        #expect(model.saveState == .unsaved)
         try await waitForAutosave(model)
         #expect(try repository.readChapter(chapter, in: project.rootURL) == "已经确认中文")
+    }
+
+    @Test func movingSelectionRestartsIdleWithoutChangingText() async throws {
+        let parent = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let repository = BookRepository()
+        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let project = try repository.createBook(title: "选区闲置", author: "", in: parent)
+        let model = BookWorkspaceModel(project: project, autosaveIdleDuration: .milliseconds(200))
+        model.start()
+        let originalText = model.chapterText
+        let chapter = try #require(project.metadata.chapters.first)
+        let binding = Binding(get: { model.chapterText }, set: { model.updateText($0) })
+        let coordinator = MarkdownTextEditor.Coordinator(text: binding) { isBusy in
+            model.recordEditorActivity(isBusy: isBusy, chapterID: chapter.id)
+        }
+        let textView = NSTextView()
+        coordinator.textView = textView
+        textView.delegate = coordinator
+        textView.string = "尚未保存的正文"
+        coordinator.textDidChange(Notification(name: NSText.didChangeNotification, object: textView))
+
+        for location in 1...5 {
+            try await Task.sleep(for: .milliseconds(70))
+            textView.setSelectedRange(NSRange(location: location, length: 0))
+            #expect(model.saveState == .unsaved)
+            #expect(try repository.readChapter(chapter, in: project.rootURL) == originalText)
+        }
+        try await waitForAutosave(model)
+        #expect(try repository.readChapter(chapter, in: project.rootURL) == textView.string)
     }
 
     @Test func endingCompositionPublishesTheCommittedText() {
