@@ -21,7 +21,7 @@ struct CloudSyncSheet: View {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("云端同步")
-                        .font(.title2.weight(.semibold))
+                        .font(InkTheme.editorial(27))
                     Text("《\(project.title)》")
                         .foregroundStyle(.secondary)
                 }
@@ -80,6 +80,7 @@ struct CloudSyncSheet: View {
         }
         .padding(24)
         .frame(width: 560)
+        .inkPanel()
         .overlay {
             if isWorking {
                 ZStack {

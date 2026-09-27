@@ -24,20 +24,15 @@ struct BookDetailsSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Text("作品信息").font(.title2.bold())
+            Text("作品信息").font(InkTheme.editorial(27))
             HStack(alignment: .top, spacing: 24) {
                 VStack(spacing: 12) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 8).fill(.quaternary)
-                        if let coverData, let image = NSImage(data: coverData) {
-                            Image(nsImage: image).resizable().scaledToFit()
-                        } else {
-                            Label("未设置封面", systemImage: "book.closed")
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .frame(width: 160, height: 220)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    BookCoverView(
+                        title: draft.title.isEmpty ? "未命名作品" : draft.title,
+                        author: draft.author, projectID: project.id,
+                        customImage: coverData.flatMap(NSImage.init(data:))
+                    )
+                    .frame(width: 160)
                     .accessibilityIdentifier("book-cover-preview")
                     Button("选择封面…") { showsImporter = true }
                         .accessibilityIdentifier("choose-book-cover")
@@ -80,6 +75,7 @@ struct BookDetailsSheet: View {
         }
         .padding(24)
         .frame(width: 620)
+        .inkPanel()
         .interactiveDismissDisabled(isWorking)
         .task {
             isWorking = true

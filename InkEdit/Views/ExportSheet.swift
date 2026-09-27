@@ -28,7 +28,7 @@ struct ExportSheet: View {
         VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("导出《\(project.title)》")
-                    .font(.title2.weight(.semibold))
+                    .font(InkTheme.editorial(27))
                 Text("所选章节将按书籍目录顺序合并，原始 Markdown 不会被修改。")
                     .foregroundStyle(.secondary)
             }
@@ -66,6 +66,7 @@ struct ExportSheet: View {
         }
         .padding(24)
         .frame(width: 560)
+        .inkPanel()
         .overlay {
             if isExporting {
                 ZStack {

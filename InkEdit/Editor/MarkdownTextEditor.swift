@@ -31,7 +31,7 @@ struct MarkdownTextEditor: NSViewRepresentable {
         textView.isAutomaticDashSubstitutionEnabled = true
         textView.isAutomaticTextReplacementEnabled = true
         textView.drawsBackground = true
-        textView.backgroundColor = .textBackgroundColor
+        textView.backgroundColor = InkTheme.paperColor
         textView.string = text
         context.coordinator.textView = textView
         context.coordinator.highlight()
@@ -42,7 +42,7 @@ struct MarkdownTextEditor: NSViewRepresentable {
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
         scrollView.drawsBackground = true
-        scrollView.backgroundColor = .textBackgroundColor
+        scrollView.backgroundColor = InkTheme.paperColor
         scrollView.documentView = textView
         return scrollView
     }

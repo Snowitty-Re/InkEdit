@@ -1,5 +1,7 @@
 import SwiftUI
 
+enum WorkspaceLaunchAction { case write, read, export, cloud }
+
 struct BookWorkspaceView: View {
     private enum WorkspaceMode: String, CaseIterable, Identifiable {
         case write
@@ -29,10 +31,13 @@ struct BookWorkspaceView: View {
     let onProjectUpdated: (BookProject) -> Void
 
     init(
-        project: OpenBookProject, onClose: @escaping () -> Void,
+        project: OpenBookProject, launchAction: WorkspaceLaunchAction = .write, onClose: @escaping () -> Void,
         onProjectUpdated: @escaping (BookProject) -> Void = { _ in }
     ) {
         _model = State(initialValue: BookWorkspaceModel(project: project))
+        _mode = State(initialValue: launchAction == .read ? .read : .write)
+        _showsExport = State(initialValue: launchAction == .export)
+        _showsCloudSync = State(initialValue: launchAction == .cloud)
         self.onClose = onClose
         self.onProjectUpdated = onProjectUpdated
     }
@@ -40,16 +45,30 @@ struct BookWorkspaceView: View {
     var body: some View {
         @Bindable var model = model
 
-        NavigationSplitView {
-            List(selection: selectedChapterBinding) {
-                Section("章节") {
-                    ForEach(model.chapters) { chapter in
-                        Label(chapter.title, systemImage: "doc.text")
-                            .tag(chapter.id)
+        HStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Image("InkMark").resizable().frame(width: 38, height: 38)
+                    Text(model.project.title).font(InkTheme.editorial(24)).lineLimit(2)
+                    Text(model.project.author.isEmpty ? "我的手稿" : model.project.author)
+                        .font(.caption).foregroundStyle(InkTheme.muted)
+                }.padding(22)
+                Rectangle().fill(InkTheme.line).frame(height: 1).padding(.horizontal, 20)
+                List(selection: selectedChapterBinding) {
+                    Section("章节") {
+                        ForEach(model.chapters) { chapter in
+                            Label(chapter.title, systemImage: "doc.text")
+                                .tag(chapter.id)
+                        }
                     }
                 }
+                .listStyle(.sidebar)
+                .scrollContentBackground(.hidden)
+                .accessibilityIdentifier("chapter-sidebar")
             }
-            .navigationSplitViewColumnWidth(min: 190, ideal: 230, max: 300)
+            .frame(width: 220)
+            .frame(maxHeight: .infinity)
+            .background(InkTheme.sidebar)
             .navigationTitle(model.project.title)
             .toolbar {
                 ToolbarItem {
@@ -69,6 +88,7 @@ struct BookWorkspaceView: View {
                     } label: {
                         Label("返回书架", systemImage: "chevron.left")
                     }
+                    .accessibilityIdentifier("workspace-back-button")
                 }
                 ToolbarItem {
                     Button {
@@ -122,66 +142,73 @@ struct BookWorkspaceView: View {
                     .accessibilityIdentifier("cloud-sync-button")
                 }
             }
-        } detail: {
-            if let chapter = model.selectedChapter {
-                VStack(spacing: 0) {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(chapter.title)
-                                .font(.title2.weight(.semibold))
-                            Text(chapter.relativePath ?? "")
-                                .font(.caption)
-                                .foregroundStyle(.tertiary)
+            Rectangle().fill(InkTheme.line).frame(width: 1)
+            Group {
+                if let chapter = model.selectedChapter {
+                    VStack(spacing: 0) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(chapter.title)
+                                    .font(InkTheme.editorial(24))
+                                Text(chapter.relativePath ?? "")
+                                    .font(.caption)
+                                    .foregroundStyle(.tertiary)
+                            }
+                            Spacer()
+                            saveStatus
                         }
-                        Spacer()
-                        saveStatus
-                    }
-                    .padding(.horizontal, 28)
-                    .padding(.vertical, 16)
+                        .padding(.horizontal, 28)
+                        .padding(.vertical, 16)
 
-                    Divider()
+                        Divider()
 
-                    switch mode {
-                    case .write:
-                        MarkdownTextEditor(text: chapterTextBinding) { isBusy in
-                            model.recordEditorActivity(isBusy: isBusy, chapterID: chapter.id)
+                        switch mode {
+                        case .write:
+                            MarkdownTextEditor(text: chapterTextBinding) { isBusy in
+                                model.recordEditorActivity(isBusy: isBusy, chapterID: chapter.id)
+                            }
+                            .id(chapter.id)
+                            .frame(maxWidth: 920, maxHeight: .infinity)
+                            .background(InkTheme.paper)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .background(InkTheme.canvas)
+                        case .read:
+                            ReaderView(
+                                markdown: model.chapterText,
+                                chapterTitle: chapter.title,
+                                rootURL: model.rootURL,
+                                annotations: model.currentChapterAnnotations,
+                                onSelection: { selection in
+                                    model.addHighlight(selection)
+                                    showsInspector = true
+                                },
+                                theme: $readerTheme
+                            )
                         }
-                        .id(chapter.id)
-                        .background(Color(nsColor: .textBackgroundColor))
-                    case .read:
-                        ReaderView(
-                            markdown: model.chapterText,
-                            chapterTitle: chapter.title,
-                            rootURL: model.rootURL,
-                            annotations: model.currentChapterAnnotations,
-                            onSelection: { selection in
-                                model.addHighlight(selection)
-                                showsInspector = true
-                            },
-                            theme: $readerTheme
-                        )
-                    }
 
-                    Divider()
+                        Divider()
 
-                    HStack(spacing: 18) {
-                        Text("\(model.statistics.characterCount) 字符")
-                        Text("\(model.statistics.wordCount) 字词")
-                        Text("约 \(model.statistics.estimatedReadingMinutes) 分钟阅读")
-                        Spacer()
-                        Text(mode == .write ? "Markdown" : "阅读模式")
+                        HStack(spacing: 18) {
+                            Text("\(model.statistics.characterCount) 字符")
+                            Text("\(model.statistics.wordCount) 字词")
+                            Text("约 \(model.statistics.estimatedReadingMinutes) 分钟阅读")
+                            Spacer()
+                            Text(mode == .write ? "Markdown" : "阅读模式")
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 18)
+                        .frame(height: 30)
                     }
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 18)
-                    .frame(height: 30)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .navigationTitle(chapter.title)
+                } else {
+                    ContentUnavailableView("没有章节", systemImage: "doc.badge.plus", description: Text("创建章节后开始写作。"))
                 }
-                .navigationTitle(chapter.title)
-            } else {
-                ContentUnavailableView("没有章节", systemImage: "doc.badge.plus", description: Text("创建章节后开始写作。"))
             }
         }
         .frame(minWidth: 860, minHeight: 580)
+        .inkPanel()
         .inspector(isPresented: $showsInspector) {
             NotesInspectorView(model: model)
         }

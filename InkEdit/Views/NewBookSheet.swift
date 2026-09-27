@@ -12,7 +12,7 @@ struct NewBookSheet: View {
         VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("创建书籍")
-                    .font(.title2.weight(.semibold))
+                    .font(InkTheme.editorial(27))
                 Text("正文会保存在你接下来选择的文件夹中。")
                     .foregroundStyle(.secondary)
             }
@@ -39,5 +39,6 @@ struct NewBookSheet: View {
         }
         .padding(24)
         .frame(width: 440)
+        .inkPanel()
     }
 }

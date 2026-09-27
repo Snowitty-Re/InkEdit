@@ -53,6 +53,8 @@ struct NotesInspectorView: View {
                 .listStyle(.inset)
             }
         }
+        .scrollContentBackground(.hidden)
+        .inkPanel()
         .navigationTitle("笔记与重点")
         .frame(minWidth: 260, idealWidth: 320)
     }

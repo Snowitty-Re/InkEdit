@@ -193,7 +193,7 @@ struct MarkdownHTMLRenderer {
         let colors =
             switch theme {
             case .light: (background: "#fbfbfa", foreground: "#20201f", secondary: "#686866", mark: "#ffe58a")
-            case .sepia: (background: "#f4ecd9", foreground: "#3b3328", secondary: "#756955", mark: "#e9cf75")
+            case .sepia: (background: "#f8f5ef", foreground: "#343b34", secondary: "#71796d", mark: "#e4d99b")
             case .dark: (background: "#171716", foreground: "#e8e5df", secondary: "#aaa59c", mark: "#6f5d19")
             }
         return """
