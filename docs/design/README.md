@@ -45,3 +45,13 @@ Use case: illustration-story. Asset type: production default book jacket artwork
 ## 视觉回归
 
 `-ui-testing -ui-testing-showcase` 创建隔离、仅调试的六本示例作品（不修改真实书架），覆盖浅色/深色、搜索、收藏、进入写作与阅读、作品信息和导出入口。截图通过 XCTest 附件保存。
+
+2026-09-27 本地 macOS 27 验证：60 项单元测试通过；创建弹窗、封面保存/取消、书架搜索收藏与编辑阅读导航、笔记侧栏、深色/列表、最小窗口、完整工作区四种格式导出通过。Release 编译、Swift Format 严格检查、git diff 空白检查通过。此记录不代表 GitHub CI 运行结果。
+
+实机截图（均为隔离的示例作品）：
+
+- [纸白书架](screenshots/library-light.png) / [墨色书架](screenshots/library-dark.png)
+- [纸白写作区](screenshots/workspace-light.png) / [墨色写作区](screenshots/workspace-dark.png)
+- [窄窗口](screenshots/library-compact.png) / [阅读](screenshots/reader.png) / [作品信息](screenshots/book-details.png)
+
+默认窗口 1280 × 820，窄窗口书架自动切为两列并滚动浏览。云连接位于每本作品详情中，避免书架侧栏展示未经核实的连接状态。书架“进入写作”打开作品首章，不虚构上次阅读位置。

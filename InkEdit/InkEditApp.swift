@@ -3,6 +3,15 @@ import SwiftUI
 
 @main
 struct InkEditApp: App {
+    private var defaultWindowSize: CGSize {
+        #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("-ui-testing-compact") {
+                return CGSize(width: 960, height: 640)
+            }
+        #endif
+        return CGSize(width: 1280, height: 820)
+    }
+
     private let exportTestProject: OpenBookProject? = {
         #if DEBUG
             let arguments = ProcessInfo.processInfo.arguments
@@ -42,7 +51,13 @@ struct InkEditApp: App {
         do {
             if ProcessInfo.processInfo.arguments.contains("-ui-testing") {
                 let configuration = ModelConfiguration(isStoredInMemoryOnly: true)
-                return try ModelContainer(for: LibraryBook.self, configurations: configuration)
+                let container = try ModelContainer(for: LibraryBook.self, configurations: configuration)
+                #if DEBUG
+                    if ProcessInfo.processInfo.arguments.contains("-ui-testing-showcase") {
+                        try ShowcaseFixtures.populate(container.mainContext)
+                    }
+                #endif
+                return container
             }
             return try ModelContainer(for: LibraryBook.self)
         } catch {
@@ -66,6 +81,9 @@ struct InkEditApp: App {
             #endif
         }
         .modelContainer(modelContainer)
+        .defaultSize(width: defaultWindowSize.width, height: defaultWindowSize.height)
+
+        Settings { InkSettingsView() }
     }
 }
 

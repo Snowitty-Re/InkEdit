@@ -4,6 +4,10 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct ContentView: View {
+    private struct DetailsPresentation: Identifiable {
+        let project: OpenBookProject
+        var id: UUID { project.metadata.id }
+    }
     private enum LibrarySection: String, CaseIterable, Identifiable {
         case all
         case recent
@@ -13,7 +17,7 @@ struct ContentView: View {
 
         var title: LocalizedStringKey {
             switch self {
-            case .all: "全部书籍"
+            case .all: "全部作品"
             case .recent: "最近打开"
             case .favorites: "收藏"
             }
@@ -39,9 +43,12 @@ struct ContentView: View {
     @State private var errorMessage: String?
     @State private var activeProject: OpenBookProject?
     @State private var activeAccess: ScopedBookAccess?
-    @State private var detailsProject: OpenBookProject?
+    @State private var detailsProject: DetailsPresentation?
     @State private var detailsAccess: ScopedBookAccess?
-    @State private var showsBookDetails = false
+    @State private var launchAction = WorkspaceLaunchAction.write
+    @State private var previewRevision = 0
+    @AppStorage("inkedit.library.listLayout") private var listLayout = false
+    @AppStorage("inkedit.appearance") private var appearance = InkAppearance.system
 
     private let repository = BookRepository()
 
@@ -53,29 +60,30 @@ struct ContentView: View {
         Group {
             if let activeProject {
                 BookWorkspaceView(
-                    project: activeProject, onClose: closeWorkspace, onProjectUpdated: updateLibraryDetails)
+                    project: activeProject, launchAction: launchAction, onClose: closeWorkspace,
+                    onProjectUpdated: updateLibraryDetails)
             } else {
                 libraryView
             }
         }
-        .frame(minWidth: 900, minHeight: 600)
+        .frame(minWidth: 960, minHeight: 640)
+        .inkPanel()
+        .preferredColorScheme(appearance.colorScheme)
         .sheet(isPresented: $showsNewBookSheet) {
             NewBookSheet { title, author in
                 createBook(title: title, author: author)
             }
         }
         .sheet(
-            isPresented: $showsBookDetails,
+            item: $detailsProject,
             onDismiss: {
                 detailsProject = nil
                 detailsAccess?.stop()
                 detailsAccess = nil
             }
-        ) {
-            if let detailsProject {
-                BookDetailsSheet(project: detailsProject.metadata, rootURL: detailsProject.rootURL) { updated in
-                    updateLibraryDetails(updated)
-                }
+        ) { presentation in
+            BookDetailsSheet(project: presentation.project.metadata, rootURL: presentation.project.rootURL) { updated in
+                updateLibraryDetails(updated)
             }
         }
         .fileImporter(
@@ -92,31 +100,124 @@ struct ContentView: View {
     }
 
     private var libraryView: some View {
-        NavigationSplitView {
-            List(selection: $section) {
-                Section("书架") {
-                    ForEach(LibrarySection.allCases) { item in
-                        Label(item.title, systemImage: item.symbol)
-                            .tag(item)
-                    }
+        HStack(spacing: 0) {
+            librarySidebar.frame(width: 174)
+            Rectangle().fill(InkTheme.line).frame(width: 1)
+            VStack(alignment: .leading, spacing: 0) {
+                libraryHeader
+                libraryGrid
+                HStack {
+                    Text("共 \(filteredBooks.count) 部作品")
+                    Spacer()
+                    Text("故事，从这里开始。")
                 }
-
-                Section("云端") {
-                    Label("Google Drive", systemImage: "externaldrive.badge.icloud")
-                    Label("GitHub", systemImage: "shippingbox")
-                }
-                .foregroundStyle(.secondary)
+                .font(.caption).foregroundStyle(InkTheme.muted)
+                .padding(.horizontal, 32).padding(.vertical, 12)
             }
-            .accessibilityIdentifier("library-sidebar")
-            .navigationTitle("InkEdit")
-            .navigationSplitViewColumnWidth(min: 180, ideal: 210, max: 260)
-        } content: {
-            libraryGrid
-                .navigationTitle(section?.title ?? "书架")
-                .searchable(text: $searchText, prompt: "搜索书名或作者")
-                .toolbar { libraryToolbar }
-        } detail: {
-            detailView
+            .frame(maxWidth: .infinity, maxHeight: .infinity).background(InkTheme.canvas)
+            Rectangle().fill(InkTheme.line).frame(width: 1)
+            detailView.frame(width: 260)
+        }
+        .navigationTitle("InkEdit")
+        .onAppear { if selectedBookID == nil { selectedBookID = filteredBooks.first?.id } }
+        .onChange(of: searchText) { _, _ in reconcileSelection() }
+        .onChange(of: section) { _, _ in reconcileSelection() }
+    }
+
+    private var librarySidebar: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                Image("InkMark").resizable().frame(width: 40, height: 40)
+                Text("InkEdit").font(.system(size: 21, weight: .medium, design: .serif))
+            }.padding(.top, 26).padding(.bottom, 38)
+            Text("我的书房").font(.caption).foregroundStyle(InkTheme.muted).padding(.leading, 12).padding(.bottom, 12)
+            ForEach(LibrarySection.allCases) { item in
+                Button {
+                    section = item
+                } label: {
+                    HStack(spacing: 10) {
+                        Label(item.title, systemImage: item.symbol)
+                        Spacer()
+                        if item == .all { Text("\(books.count)").font(.caption) }
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 12)
+                    .background(
+                        section == item ? InkTheme.sage.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 7)
+                    )
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain).padding(.bottom, 4)
+                .accessibilityIdentifier("library-section-\(item.rawValue)")
+            }
+            Spacer()
+            VStack(alignment: .leading, spacing: 12) {
+                Text("让每一个故事，\n有自己的位置。")
+                    .font(InkTheme.editorial(15)).lineSpacing(7).foregroundStyle(InkTheme.muted)
+                Rectangle().fill(InkTheme.line).frame(height: 1).padding(.vertical, 8)
+                SettingsLink { Label("偏好设置", systemImage: "gearshape") }
+                    .buttonStyle(.plain).foregroundStyle(InkTheme.muted)
+            }.padding(12).padding(.bottom, 12)
+        }
+        .padding(.horizontal, 12).frame(maxHeight: .infinity)
+        .background(InkTheme.sidebar)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("library-sidebar")
+    }
+
+    private var libraryHeader: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(section == .all ? "我的作品" : (section == .favorites ? "珍藏的故事" : "最近打开"))
+                        .font(InkTheme.editorial(32))
+                    Text("落笔成章，珍藏每一份灵感。").font(.callout).foregroundStyle(InkTheme.muted)
+                }
+                Spacer(minLength: 8)
+                Menu {
+                    Button("导入 Markdown 文件…") { showsMarkdownImporter = true }
+                    Button("导入项目文件夹…") { importFolder() }
+                } label: {
+                    Image(systemName: "square.and.arrow.down")
+                }
+                .menuStyle(.borderlessButton).fixedSize().help("导入作品")
+                .accessibilityLabel("导入作品").accessibilityIdentifier("import-book-menu")
+                Button {
+                    showsNewBookSheet = true
+                } label: {
+                    Label("新建作品", systemImage: "plus")
+                }
+                .buttonStyle(.borderedProminent).controlSize(.large)
+                .keyboardShortcut("n", modifiers: .command)
+                .accessibilityIdentifier("create-book-button")
+            }
+            HStack(spacing: 10) {
+                Image(systemName: "magnifyingglass").foregroundStyle(InkTheme.muted)
+                TextField("搜索书名或作者", text: $searchText).textFieldStyle(.plain)
+                    .accessibilityIdentifier("library-search")
+                if !searchText.isEmpty {
+                    Button {
+                        searchText = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                    }
+                    .buttonStyle(.plain).foregroundStyle(InkTheme.muted).help("清除搜索")
+                }
+                Spacer(minLength: 4)
+                Picker("作品布局", selection: $listLayout) {
+                    Image(systemName: "square.grid.2x2").tag(false).accessibilityLabel("橱窗")
+                    Image(systemName: "list.bullet").tag(true).accessibilityLabel("列表")
+                }
+                .pickerStyle(.segmented).labelsHidden().frame(width: 76)
+                .accessibilityIdentifier("library-layout-picker")
+            }
+            .padding(10).background(InkTheme.paper, in: RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(InkTheme.line, lineWidth: 1))
+        }.padding(.horizontal, 32).padding(.top, 24).padding(.bottom, 16)
+    }
+
+    private func reconcileSelection() {
+        if !filteredBooks.contains(where: { $0.id == selectedBookID }) {
+            selectedBookID = filteredBooks.first?.id
         }
     }
 
@@ -141,90 +242,97 @@ struct ContentView: View {
         Group {
             if filteredBooks.isEmpty {
                 ContentUnavailableView {
-                    Label(searchText.isEmpty ? "开始你的第一本书" : "没有找到书籍", systemImage: "book.closed")
+                    Label(books.isEmpty ? "开始你的第一本书" : "这里还没有作品", systemImage: "book.closed")
                 } description: {
-                    Text(searchText.isEmpty ? "创建一本新书，或导入已有 Markdown 项目。" : "尝试其他搜索关键词。")
+                    Text(books.isEmpty ? "创建一本新书，或导入已有 Markdown 项目。" : "试试其他筛选条件，或搜索书名与作者。")
                 } actions: {
-                    if searchText.isEmpty {
-                        Button("创建书籍") { showsNewBookSheet = true }
-                            .buttonStyle(.borderedProminent)
+                    if books.isEmpty {
+                        Button("创建书籍") { showsNewBookSheet = true }.buttonStyle(.borderedProminent)
                     }
                 }
             } else {
                 ScrollView {
-                    LazyVGrid(
-                        columns: [GridItem(.adaptive(minimum: 150, maximum: 190), spacing: 22)],
-                        alignment: .leading,
-                        spacing: 24
-                    ) {
-                        ForEach(filteredBooks) { book in
-                            BookCard(book: book, isSelected: selectedBookID == book.id)
-                                .onTapGesture { selectedBookID = book.id }
-                                .contextMenu {
-                                    Button("作品信息…") { editBookDetails(book) }
-                                    Button(book.isFavorite ? "取消收藏" : "收藏") {
-                                        book.isFavorite.toggle()
+                    if listLayout {
+                        LazyVStack(spacing: 10) {
+                            ForEach(filteredBooks) { book in
+                                bookButton(book) {
+                                    HStack(spacing: 20) {
+                                        LibraryBookCover(book: book).frame(width: 48)
+                                        VStack(alignment: .leading, spacing: 6) {
+                                            Text(book.title).font(InkTheme.editorial(21)).lineLimit(1)
+                                            Text(book.author.isEmpty ? "未设置作者" : book.author)
+                                                .font(.caption).foregroundStyle(InkTheme.muted)
+                                        }
+                                        Spacer()
+                                        if book.isFavorite {
+                                            Image(systemName: "star.fill").foregroundStyle(InkTheme.sage)
+                                        }
+                                        Image(systemName: "chevron.right").foregroundStyle(InkTheme.muted)
                                     }
-                                    Divider()
-                                    Button("从书架移除", role: .destructive) {
-                                        removeFromLibrary(book)
-                                    }
+                                    .padding(14)
+                                    .background(
+                                        selectedBookID == book.id ? InkTheme.sage.opacity(0.10) : InkTheme.paper,
+                                        in: RoundedRectangle(cornerRadius: 8))
                                 }
-                        }
+                            }
+                        }.padding(.horizontal, 32).padding(.vertical, 6)
+                    } else {
+                        LazyVGrid(
+                            columns: [GridItem(.adaptive(minimum: 185, maximum: 235), spacing: 24)],
+                            alignment: .leading, spacing: 24
+                        ) {
+                            ForEach(filteredBooks) { book in
+                                bookButton(book) { BookCard(book: book, isSelected: selectedBookID == book.id) }
+                            }
+                        }.padding(.horizontal, 28).padding(.top, 6).padding(.bottom, 16)
                     }
-                    .padding(24)
                 }
             }
+        }.scrollIndicators(.hidden).frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func bookButton<Label: View>(_ book: LibraryBook, @ViewBuilder label: () -> Label) -> some View {
+        Button {
+            selectedBookID = book.id
+        } label: {
+            label()
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("library-book-\(book.title)")
+        .accessibilityLabel("\(book.title)，\(book.author)")
+        .contextMenu {
+            Button("进入写作") { openBook(book) }
+            Button("作品信息…") { editBookDetails(book) }
+            Button(book.isFavorite ? "取消收藏" : "收藏") { toggleFavorite(book) }
+            Divider()
+            Button("从书架移除", role: .destructive) { removeFromLibrary(book) }
         }
     }
 
     @ViewBuilder
     private var detailView: some View {
         if let book = selectedBook {
-            VStack(alignment: .leading, spacing: 18) {
-                Text(book.title)
-                    .font(.largeTitle.weight(.semibold))
-                Text(book.author.isEmpty ? "未设置作者" : book.author)
-                    .foregroundStyle(.secondary)
-                Divider()
-                Button("编辑作品信息…") { editBookDetails(book) }
-                    .accessibilityIdentifier("library-book-details")
-                LabeledContent("项目位置", value: book.rootPath)
-                LabeledContent("最近打开", value: book.lastOpenedAt.formatted(date: .abbreviated, time: .shortened))
-                Spacer()
-                HStack {
-                    Button("在 Finder 中显示") { revealInFinder(book) }
-                    Spacer()
-                    Button("打开书籍") { openBook(book) }
-                        .buttonStyle(.borderedProminent)
-                }
-            }
-            .padding(28)
-            .navigationTitle(book.title)
+            LibraryDetailView(
+                book: book, previewRevision: previewRevision,
+                onOpen: { openBook(book, action: $0) },
+                onDetails: { editBookDetails(book) },
+                onReveal: { revealInFinder(book) },
+                onFavorite: { toggleFavorite(book) })
         } else {
-            ContentUnavailableView("选择一本书", systemImage: "book.pages", description: Text("查看书籍信息并进入写作。"))
+            VStack(spacing: 16) {
+                Image(systemName: "book.pages").font(.system(size: 32, weight: .ultraLight))
+                Text("静候一个故事").font(InkTheme.editorial(22))
+                Text("选择作品，开始写作或阅读。").font(.caption)
+            }
+            .foregroundStyle(InkTheme.muted)
+            .frame(maxWidth: .infinity, maxHeight: .infinity).background(InkTheme.paper)
         }
     }
 
-    @ToolbarContentBuilder
-    private var libraryToolbar: some ToolbarContent {
-        ToolbarItemGroup {
-            Menu {
-                Button("导入 Markdown 文件…") { showsMarkdownImporter = true }
-                Button("导入项目文件夹…") { importFolder() }
-            } label: {
-                Label("导入", systemImage: "square.and.arrow.down")
-            }
-            .accessibilityIdentifier("import-book-menu")
-
-            Button {
-                showsNewBookSheet = true
-            } label: {
-                Label("创建书籍", systemImage: "plus")
-            }
-            .keyboardShortcut("n", modifiers: .command)
-            .accessibilityIdentifier("create-book-button")
-        }
+    private func toggleFavorite(_ book: LibraryBook) {
+        book.isFavorite.toggle()
+        do { try modelContext.save() } catch { errorMessage = error.localizedDescription }
+        reconcileSelection()
     }
 
     private var selectedBook: LibraryBook? {
@@ -288,9 +396,11 @@ struct ContentView: View {
         selectedBookID = book.id
     }
 
-    private func openBook(_ book: LibraryBook) {
+    private func openBook(_ book: LibraryBook, action: WorkspaceLaunchAction = .write) {
         do {
             let access = try BookAccessController.resolve(book.rootBookmark)
+            var transferred = false
+            defer { if !transferred { access.stop() } }
             let project = try repository.loadProject(at: access.url)
             book.title = project.title
             book.author = project.author
@@ -299,6 +409,8 @@ struct ContentView: View {
             try modelContext.save()
             activeAccess?.stop()
             activeAccess = access
+            transferred = true
+            launchAction = action
             activeProject = OpenBookProject(rootURL: access.url, metadata: project)
         } catch {
             errorMessage = error.localizedDescription
@@ -312,6 +424,7 @@ struct ContentView: View {
     }
 
     private func updateLibraryDetails(_ project: BookProject) {
+        previewRevision += 1
         guard let book = books.first(where: { $0.projectID == project.id }) else { return }
         book.title = project.title
         book.author = project.author
@@ -325,8 +438,7 @@ struct ContentView: View {
             do {
                 let project = try repository.loadProject(at: access.url)
                 detailsAccess = access
-                detailsProject = OpenBookProject(rootURL: access.url, metadata: project)
-                showsBookDetails = true
+                detailsProject = DetailsPresentation(project: OpenBookProject(rootURL: access.url, metadata: project))
             } catch {
                 access.stop()
                 throw error
