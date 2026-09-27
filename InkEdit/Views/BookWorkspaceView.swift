@@ -23,12 +23,18 @@ struct BookWorkspaceView: View {
     @State private var showsInspector = false
     @State private var showsExport = false
     @State private var showsCloudSync = false
+    @State private var showsBookDetails = false
 
     let onClose: () -> Void
+    let onProjectUpdated: (BookProject) -> Void
 
-    init(project: OpenBookProject, onClose: @escaping () -> Void) {
+    init(
+        project: OpenBookProject, onClose: @escaping () -> Void,
+        onProjectUpdated: @escaping (BookProject) -> Void = { _ in }
+    ) {
         _model = State(initialValue: BookWorkspaceModel(project: project))
         self.onClose = onClose
+        self.onProjectUpdated = onProjectUpdated
     }
 
     var body: some View {
@@ -46,6 +52,16 @@ struct BookWorkspaceView: View {
             .navigationSplitViewColumnWidth(min: 190, ideal: 230, max: 300)
             .navigationTitle(model.project.title)
             .toolbar {
+                ToolbarItem {
+                    Button {
+                        showsBookDetails = true
+                    } label: {
+                        Label("作品信息", systemImage: "info.circle")
+                    }
+                    .keyboardShortcut("i", modifiers: [.command, .shift])
+                    .help("设置书名、作者、简介与封面")
+                    .accessibilityIdentifier("book-details-button")
+                }
                 ToolbarItem(placement: .navigation) {
                     Button {
                         model.flushCurrentChapter()
@@ -171,6 +187,12 @@ struct BookWorkspaceView: View {
         }
         .sheet(isPresented: $showsExport) {
             ExportSheet(project: model.project, rootURL: model.rootURL, currentChapterID: model.selectedChapterID)
+        }
+        .sheet(isPresented: $showsBookDetails) {
+            BookDetailsSheet(project: model.project, rootURL: model.rootURL) { updated in
+                model.applyProjectDetails(updated)
+                onProjectUpdated(updated)
+            }
         }
         .sheet(isPresented: $showsCloudSync) {
             CloudSyncSheet(

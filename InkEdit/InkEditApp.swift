@@ -22,6 +22,15 @@ struct InkEditApp: App {
                             title: title, to: project.metadata, in: project.rootURL)
                     }
                 }
+                if let index = arguments.firstIndex(of: "-ui-testing-cover-data"), index + 1 < arguments.count,
+                    let source = Data(base64Encoded: arguments[index + 1])
+                {
+                    let path = "assets/test-cover.png"
+                    try AtomicFileWriter.write(
+                        try CoverImageProcessor.pngData(from: source), to: project.rootURL.appendingPathComponent(path))
+                    project.metadata.coverRelativePath = path
+                    try repository.saveProject(project.metadata, at: project.rootURL)
+                }
                 return project
             } catch { fatalError("Could not create export test fixture: \(error)") }
         #else
@@ -44,7 +53,10 @@ struct InkEditApp: App {
     var body: some Scene {
         WindowGroup {
             #if DEBUG
-                if ProcessInfo.processInfo.arguments.contains("-ui-testing-export-panel"), let exportTestProject {
+                if ProcessInfo.processInfo.arguments.contains("-ui-testing-details-panel"), let exportTestProject {
+                    BookDetailsTestHost(project: exportTestProject)
+                } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-export-panel"), let exportTestProject
+                {
                     ExportPanelTestHost(project: exportTestProject)
                 } else {
                     ContentView(initialProject: exportTestProject)
@@ -58,6 +70,22 @@ struct InkEditApp: App {
 }
 
 #if DEBUG
+    private struct BookDetailsTestHost: View {
+        @State var project: OpenBookProject
+        @State private var showsDetails = false
+
+        var body: some View {
+            Button("作品信息") { showsDetails = true }
+                .accessibilityIdentifier("details-test-open")
+                .frame(width: 900, height: 760)
+                .sheet(isPresented: $showsDetails) {
+                    BookDetailsSheet(project: project.metadata, rootURL: project.rootURL) {
+                        project.metadata = $0
+                    }
+                }
+        }
+    }
+
     /// Allows export panel tests to run independently of the editor's AppKit layout.
     private struct ExportPanelTestHost: View {
         let project: OpenBookProject

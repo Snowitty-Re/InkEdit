@@ -5,6 +5,10 @@
 //  Created by Snowitty on 2026/8/25.
 //
 
+import AppKit
+import CoreGraphics
+import ImageIO
+import UniformTypeIdentifiers
 import XCTest
 
 final class InkEditUITests: XCTestCase {
@@ -123,6 +127,116 @@ final class InkEditUITests: XCTestCase {
         let dismissed = XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "exists == false"), object: chooseDestination)
         XCTAssertEqual(XCTWaiter.wait(for: [dismissed], timeout: 20), .completed, app.debugDescription)
+    }
+
+    @MainActor
+    func testEditsBookDetailsAndCoverWithSaveAndCancel() throws {
+        try verifyBookDetails(useFileImporter: false)
+    }
+
+    @MainActor
+    func testSelectsBookCoverThroughFileImporter() throws {
+        try verifyBookDetails(useFileImporter: true)
+    }
+
+    @MainActor
+    private func verifyBookDetails(useFileImporter: Bool) throws {
+        let source = FileManager.default.temporaryDirectory.appendingPathComponent("cover-\(UUID().uuidString).png")
+        defer { try? FileManager.default.removeItem(at: source) }
+        let context = try XCTUnwrap(
+            CGContext(
+                data: nil, width: 12, height: 18, bitsPerComponent: 8, bytesPerRow: 0,
+                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(CGColor(red: 0.2, green: 0.4, blue: 0.8, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: 12, height: 18))
+        let destination = try XCTUnwrap(
+            CGImageDestinationCreateWithURL(source as CFURL, UTType.png.identifier as CFString, 1, nil))
+        CGImageDestinationAddImage(destination, try XCTUnwrap(context.makeImage()), nil)
+        XCTAssertTrue(CGImageDestinationFinalize(destination))
+
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-ui-testing", "-ui-testing-export", "-ui-testing-details-panel",
+            "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN",
+        ]
+        if !useFileImporter {
+            app.launchArguments += ["-ui-testing-cover-data", try Data(contentsOf: source).base64EncodedString()]
+        }
+        app.launch()
+        defer { app.terminate() }
+        if !app.windows.firstMatch.waitForExistence(timeout: 3) {
+            app.menuBars.menuBarItems["文件"].click()
+            app.menuItems["新建窗口"].click()
+        }
+        let open = app.buttons["details-test-open"]
+        XCTAssertTrue(open.waitForExistence(timeout: 5))
+        open.click()
+        let author = app.textFields["details-author"]
+        XCTAssertTrue(author.waitForExistence(timeout: 5))
+        author.click()
+        author.typeKey("a", modifierFlags: .command)
+        paste("新笔名 · 雪", into: author)
+        if useFileImporter {
+            app.buttons["choose-book-cover"].click()
+            app.typeKey("g", modifierFlags: [.command, .shift])
+            let path = app.textFields["PathTextField"]
+            XCTAssertTrue(path.waitForExistence(timeout: 5))
+            path.typeKey("a", modifierFlags: .command)
+            paste(source.path, into: path)
+            path.typeKey(.return, modifierFlags: [])
+            let navigated = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: path)
+            XCTAssertEqual(XCTWaiter.wait(for: [navigated], timeout: 5), .completed)
+            let choose = app.buttons["OKButton"]
+            XCTAssertTrue(choose.waitForExistence(timeout: 5))
+            choose.click()
+        }
+        let remove = app.buttons["remove-book-cover"]
+        let loaded = XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true"), object: remove)
+        XCTAssertEqual(XCTWaiter.wait(for: [loaded], timeout: 5), .completed, app.debugDescription)
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "作品信息与封面预览"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+        app.buttons["save-book-details"].click()
+        let saved = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: author)
+        XCTAssertEqual(XCTWaiter.wait(for: [saved], timeout: 5), .completed)
+
+        open.click()
+        XCTAssertTrue(author.waitForExistence(timeout: 5))
+        XCTAssertEqual(author.value as? String, "新笔名 · 雪")
+        XCTAssertTrue(remove.isEnabled)
+        remove.click()
+        app.buttons["取消"].click()
+        open.click()
+        XCTAssertTrue(author.waitForExistence(timeout: 5))
+        XCTAssertTrue(remove.isEnabled)
+        remove.click()
+        app.buttons["save-book-details"].click()
+        let removed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: author)
+        XCTAssertEqual(XCTWaiter.wait(for: [removed], timeout: 5), .completed)
+        open.click()
+        XCTAssertTrue(author.waitForExistence(timeout: 5))
+        XCTAssertFalse(remove.isEnabled)
+    }
+
+    @MainActor
+    private func paste(_ text: String, into element: XCUIElement) {
+        // Preserve the user's clipboard and avoid changing their active input method.
+        let pasteboard = NSPasteboard.general
+        let original = (pasteboard.pasteboardItems ?? []).map { item in
+            let copy = NSPasteboardItem()
+            for type in item.types {
+                if let data = item.data(forType: type) { copy.setData(data, forType: type) }
+            }
+            return copy
+        }
+        defer {
+            pasteboard.clearContents()
+            pasteboard.writeObjects(original)
+        }
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+        element.typeKey("v", modifierFlags: .command)
     }
 
     @MainActor

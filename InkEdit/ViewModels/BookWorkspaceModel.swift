@@ -126,6 +126,11 @@ final class BookWorkspaceModel {
         errorMessage = nil
     }
 
+    func applyProjectDetails(_ updated: BookProject) {
+        guard updated.id == project.id else { return }
+        project = updated
+    }
+
     func reloadAfterExternalChange() {
         cancelScheduledSave()
         do {

@@ -39,6 +39,9 @@ struct ContentView: View {
     @State private var errorMessage: String?
     @State private var activeProject: OpenBookProject?
     @State private var activeAccess: ScopedBookAccess?
+    @State private var detailsProject: OpenBookProject?
+    @State private var detailsAccess: ScopedBookAccess?
+    @State private var showsBookDetails = false
 
     private let repository = BookRepository()
 
@@ -49,7 +52,8 @@ struct ContentView: View {
     var body: some View {
         Group {
             if let activeProject {
-                BookWorkspaceView(project: activeProject, onClose: closeWorkspace)
+                BookWorkspaceView(
+                    project: activeProject, onClose: closeWorkspace, onProjectUpdated: updateLibraryDetails)
             } else {
                 libraryView
             }
@@ -58,6 +62,20 @@ struct ContentView: View {
         .sheet(isPresented: $showsNewBookSheet) {
             NewBookSheet { title, author in
                 createBook(title: title, author: author)
+            }
+        }
+        .sheet(
+            isPresented: $showsBookDetails,
+            onDismiss: {
+                detailsProject = nil
+                detailsAccess?.stop()
+                detailsAccess = nil
+            }
+        ) {
+            if let detailsProject {
+                BookDetailsSheet(project: detailsProject.metadata, rootURL: detailsProject.rootURL) { updated in
+                    updateLibraryDetails(updated)
+                }
             }
         }
         .fileImporter(
@@ -143,6 +161,7 @@ struct ContentView: View {
                             BookCard(book: book, isSelected: selectedBookID == book.id)
                                 .onTapGesture { selectedBookID = book.id }
                                 .contextMenu {
+                                    Button("作品信息…") { editBookDetails(book) }
                                     Button(book.isFavorite ? "取消收藏" : "收藏") {
                                         book.isFavorite.toggle()
                                     }
@@ -168,6 +187,8 @@ struct ContentView: View {
                 Text(book.author.isEmpty ? "未设置作者" : book.author)
                     .foregroundStyle(.secondary)
                 Divider()
+                Button("编辑作品信息…") { editBookDetails(book) }
+                    .accessibilityIdentifier("library-book-details")
                 LabeledContent("项目位置", value: book.rootPath)
                 LabeledContent("最近打开", value: book.lastOpenedAt.formatted(date: .abbreviated, time: .shortened))
                 Spacer()
@@ -273,6 +294,7 @@ struct ContentView: View {
             let project = try repository.loadProject(at: access.url)
             book.title = project.title
             book.author = project.author
+            book.coverRelativePath = project.coverRelativePath
             book.lastOpenedAt = .now
             try modelContext.save()
             activeAccess?.stop()
@@ -287,6 +309,29 @@ struct ContentView: View {
         activeProject = nil
         activeAccess?.stop()
         activeAccess = nil
+    }
+
+    private func updateLibraryDetails(_ project: BookProject) {
+        guard let book = books.first(where: { $0.projectID == project.id }) else { return }
+        book.title = project.title
+        book.author = project.author
+        book.coverRelativePath = project.coverRelativePath
+        do { try modelContext.save() } catch { errorMessage = error.localizedDescription }
+    }
+
+    private func editBookDetails(_ book: LibraryBook) {
+        do {
+            let access = try BookAccessController.resolve(book.rootBookmark)
+            do {
+                let project = try repository.loadProject(at: access.url)
+                detailsAccess = access
+                detailsProject = OpenBookProject(rootURL: access.url, metadata: project)
+                showsBookDetails = true
+            } catch {
+                access.stop()
+                throw error
+            }
+        } catch { errorMessage = error.localizedDescription }
     }
 
     private func revealInFinder(_ book: LibraryBook) {
