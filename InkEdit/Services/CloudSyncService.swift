@@ -4,39 +4,52 @@ import Foundation
 struct CloudSyncService {
     private let snapshotStore = ProjectSnapshotStore()
     private let repository = CloudSyncRepository()
-    private let keychain = KeychainStore()
+    private let keychain: any CloudCredentialStore
+    private let defaults: UserDefaults
     private let githubStore: GitHubSnapshotStore
     private let googleDriveStore: GoogleDriveSnapshotStore
 
-    init(client: any CloudHTTPClient = URLSessionCloudHTTPClient()) {
+    init(
+        client: any CloudHTTPClient = URLSessionCloudHTTPClient(),
+        defaults: UserDefaults = AppPreferences.defaults,
+        credentials: any CloudCredentialStore = KeychainStore()
+    ) {
+        self.defaults = defaults
+        keychain = credentials
         githubStore = GitHubSnapshotStore(client: client)
         googleDriveStore = GoogleDriveSnapshotStore(client: client)
     }
 
     func configuration(for provider: CloudProvider, rootURL: URL) throws -> CloudSyncConfiguration {
-        try repository.load(in: rootURL).configuration(for: provider)
+        let document = try repository.load(in: rootURL)
+        if let existing = document.configurations.first(where: { $0.provider == provider }) { return existing }
+        let project = try BookRepository().loadProject(at: rootURL)
+        return try defaultConfiguration(for: provider, projectID: project.id)
+    }
+
+    func defaultConfiguration(for provider: CloudProvider, projectID: UUID) throws -> CloudSyncConfiguration {
+        try AppPreferences.remote(in: defaults).configuration(for: provider, projectID: projectID)
     }
 
     func token(for provider: CloudProvider) throws -> String {
         try keychain.token(for: provider) ?? ""
     }
 
+    @discardableResult
     func saveConnection(
         configuration: CloudSyncConfiguration,
         token: String,
         rootURL: URL
-    ) throws {
-        let credential = token.trimmingCharacters(in: .whitespacesAndNewlines)
+    ) throws -> CloudSyncConfiguration {
+        var configuration = try configuration.normalized()
+        let replacement = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        let credential = replacement.isEmpty ? try requiredToken(configuration.provider) : replacement
         guard !credential.isEmpty else { throw CloudSyncError.missingCredential }
-        if configuration.provider == .github {
-            guard
-                !configuration.githubOwner.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                !configuration.githubRepository.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                !configuration.githubBranch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            else { throw CloudSyncError.invalidConfiguration("请完整填写 GitHub 私有仓库信息。") }
-        }
-        try keychain.saveToken(credential, for: configuration.provider)
+        let old = try repository.load(in: rootURL).configuration(for: configuration.provider)
+        configuration.resetSyncStateIfDestinationChanged(from: old)
+        if !replacement.isEmpty { try keychain.saveToken(credential, for: configuration.provider) }
         try save(configuration, rootURL: rootURL)
+        return configuration
     }
 
     func push(

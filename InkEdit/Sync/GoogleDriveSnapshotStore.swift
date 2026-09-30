@@ -49,6 +49,7 @@ struct GoogleDriveSnapshotStore {
             snapshot,
             projectID: projectID,
             projectTitle: projectTitle,
+            folderID: configuration.googleDriveFolderID,
             token: token
         )
     }
@@ -74,6 +75,7 @@ struct GoogleDriveSnapshotStore {
                 name: "q",
                 value:
                     "appProperties has { key='inkeditProjectID' and value='\(projectID.uuidString)' } and trashed=false"
+                    + (configuration.googleDriveFolderID.map { " and '\($0)' in parents" } ?? "")
             ),
             URLQueryItem(name: "spaces", value: "drive"),
             URLQueryItem(name: "fields", value: "files(id,name,md5Checksum)"),
@@ -88,6 +90,7 @@ struct GoogleDriveSnapshotStore {
         _ snapshot: Data,
         projectID: UUID,
         projectTitle: String,
+        folderID: String?,
         token: String
     ) async throws -> RemoteUploadResult {
         var components = URLComponents(string: "https://www.googleapis.com/upload/drive/v3/files")
@@ -97,11 +100,12 @@ struct GoogleDriveSnapshotStore {
         ]
         guard let url = components?.url else { throw CloudSyncError.invalidResponse }
         let boundary = "InkEdit-\(UUID().uuidString)"
-        let metadata: [String: Any] = [
+        var metadata: [String: Any] = [
             "name": "\(safeName(projectTitle)).inkedit.zip",
             "mimeType": "application/zip",
             "appProperties": ["inkeditProjectID": projectID.uuidString],
         ]
+        if let folderID { metadata["parents"] = [folderID] }
         var body = Data()
         body.appendUTF8("--\(boundary)\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n")
         body.append(try JSONSerialization.data(withJSONObject: metadata))

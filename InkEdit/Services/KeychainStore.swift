@@ -13,8 +13,21 @@ enum KeychainStoreError: LocalizedError {
     }
 }
 
-struct KeychainStore {
-    private let service = "com.snowitty.InkEdit.cloud"
+protocol CloudCredentialStore {
+    func token(for provider: CloudProvider) throws -> String?
+    func saveToken(_ token: String, for provider: CloudProvider) throws
+    func deleteToken(for provider: CloudProvider) throws
+}
+
+struct KeychainStore: CloudCredentialStore {
+    private var service: String {
+        #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("-ui-testing") {
+                return "com.snowitty.InkEdit.UITests.cloud"
+            }
+        #endif
+        return "com.snowitty.InkEdit.cloud"
+    }
 
     func token(for provider: CloudProvider) throws -> String? {
         let query: [String: Any] = [
@@ -40,9 +53,12 @@ struct KeychainStore {
             kSecAttrService as String: service,
             kSecAttrAccount as String: provider.rawValue,
         ]
-        SecItemDelete(base as CFDictionary)
+        let data = Data(token.utf8)
+        let updateStatus = SecItemUpdate(base as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+        if updateStatus == errSecSuccess { return }
+        guard updateStatus == errSecItemNotFound else { throw KeychainStoreError.unexpectedStatus(updateStatus) }
         var item = base
-        item[kSecValueData as String] = Data(token.utf8)
+        item[kSecValueData as String] = data
         item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         let status = SecItemAdd(item as CFDictionary, nil)
         guard status == errSecSuccess else { throw KeychainStoreError.unexpectedStatus(status) }

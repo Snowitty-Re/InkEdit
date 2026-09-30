@@ -12,7 +12,6 @@ struct GitHubSnapshotStore {
     }
 
     private let client: any CloudHTTPClient
-    private let backupPath = ".inkedit/InkEdit-backup.zip"
 
     init(client: any CloudHTTPClient = URLSessionCloudHTTPClient()) {
         self.client = client
@@ -29,7 +28,7 @@ struct GitHubSnapshotStore {
         request.httpMethod = "GET"
         let (data, response) = try await client.data(for: request)
         try client.requireSuccess(response, data: data)
-        return RemoteCloudSnapshot(data: data, revision: metadata.sha, identifier: backupPath)
+        return RemoteCloudSnapshot(data: data, revision: metadata.sha, identifier: configuration.snapshotPath)
     }
 
     func upload(
@@ -60,7 +59,7 @@ struct GitHubSnapshotStore {
         let (data, response) = try await client.data(for: request)
         try client.requireSuccess(response, data: data)
         let result = try JSONDecoder().decode(UploadResponse.self, from: data)
-        return RemoteUploadResult(revision: result.content.sha, identifier: backupPath)
+        return RemoteUploadResult(revision: result.content.sha, identifier: configuration.snapshotPath)
     }
 
     private func requirePrivateRepository(
@@ -94,7 +93,8 @@ struct GitHubSnapshotStore {
         var components = URLComponents()
         components.scheme = "https"
         components.host = "api.github.com"
-        components.path = "/repos/\(configuration.githubOwner)/\(configuration.githubRepository)/contents/\(backupPath)"
+        components.path =
+            "/repos/\(configuration.githubOwner)/\(configuration.githubRepository)/contents/\(configuration.snapshotPath)"
         components.queryItems = [URLQueryItem(name: "ref", value: configuration.githubBranch)]
         guard let url = components.url else { throw CloudSyncError.invalidResponse }
         return url
