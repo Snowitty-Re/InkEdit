@@ -8,6 +8,11 @@ struct NewBookSheet: View {
 
     let onCreate: (String, String) -> Void
 
+    init(onCreate: @escaping (String, String) -> Void) {
+        self.onCreate = onCreate
+        _author = State(initialValue: AppPreferences.penName())
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 6) {

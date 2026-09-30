@@ -63,6 +63,11 @@ struct CloudSyncConfiguration: Codable, Equatable, Sendable {
     }
 
     mutating func resetSyncStateIfDestinationChanged(from old: Self) {
+        // An explicit switch from a folder to the blank/default location means My Drive,
+        // not "search all folders". Preserve nil on unchanged legacy connections.
+        if provider == .googleDrive, googleDriveFolderID == nil, old.googleDriveFolderID != nil {
+            googleDriveFolderID = "root"
+        }
         let changed =
             provider != old.provider
             || (provider == .github

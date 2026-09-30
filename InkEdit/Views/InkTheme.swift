@@ -49,26 +49,3 @@ enum InkAppearance: String, CaseIterable, Identifiable {
         }
     }
 }
-
-struct InkSettingsView: View {
-    @AppStorage("inkedit.appearance") private var appearance = InkAppearance.system
-    var body: some View {
-        VStack(alignment: .leading, spacing: 24) {
-            HStack(spacing: 12) {
-                Image("InkMark").resizable().frame(width: 56, height: 56)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("InkEdit").font(InkTheme.editorial(26))
-                    Text("让写作回归文字本身。").foregroundStyle(InkTheme.muted)
-                }
-            }
-            Picker("界面外观", selection: $appearance) {
-                ForEach(InkAppearance.allCases) { Text($0.title).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            Text("云端连接按作品配置，可在作品的「云端同步」中管理。")
-                .font(.callout).foregroundStyle(InkTheme.muted)
-        }
-        .padding(32).frame(width: 440).inkPanel()
-        .preferredColorScheme(appearance.colorScheme)
-    }
-}

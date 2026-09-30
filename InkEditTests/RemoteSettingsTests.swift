@@ -113,6 +113,19 @@ struct RemoteSettingsTests {
         moved.googleDriveFolderID = "new-folder"
         moved.resetSyncStateIfDestinationChanged(from: drive)
         #expect(moved.remoteIdentifier == nil)
+        var backToRoot = moved
+        backToRoot.googleDriveFolderID = nil
+        backToRoot.resetSyncStateIfDestinationChanged(from: moved)
+        #expect(backToRoot.googleDriveFolderID == "root")
+        var rootAgain = backToRoot
+        rootAgain.remoteRevision = "root-revision"
+        let savedRoot = rootAgain
+        rootAgain.googleDriveFolderID = nil
+        rootAgain.resetSyncStateIfDestinationChanged(from: savedRoot)
+        #expect(rootAgain.remoteRevision == "root-revision")
+        #expect(
+            RemoteConnectionDefaults().configuration(for: .googleDrive, projectID: UUID()).googleDriveFolderID == "root"
+        )
     }
 
     @Test func invalidLocationsAreRejectedBeforeSaving() throws {

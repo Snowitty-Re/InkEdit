@@ -21,7 +21,7 @@ struct BookWorkspaceView: View {
     @State private var showsNewChapter = false
     @State private var newChapterTitle = ""
     @State private var mode = WorkspaceMode.write
-    @State private var readerTheme = ReaderTheme.sepia
+    @AppStorage("inkedit.readerTheme", store: AppPreferences.defaults) private var readerTheme = ReaderTheme.sepia
     @State private var showsInspector = false
     @State private var showsExport = false
     @State private var showsCloudSync = false

@@ -32,7 +32,7 @@ struct RemoteConnectionValidator {
             }
             let _: About = try await get(
                 "https://www.googleapis.com/drive/v3/about?fields=user(displayName)", token: token)
-            if let folder = config.googleDriveFolderID {
+            if let folder = config.googleDriveFolderID, folder != "root" {
                 struct Folder: Decodable {
                     struct Capabilities: Decodable { let canAddChildren: Bool? }
                     let mimeType: String

@@ -10,9 +10,11 @@ struct CloudSyncSheet: View {
     @State private var provider = CloudProvider.github
     @State private var configuration = CloudSyncConfiguration(provider: .github)
     @State private var token = ""
+    @State private var hasSavedCredential = false
     @State private var isWorking = false
     @State private var statusMessage: String?
     @State private var errorMessage: String?
+    @State private var confirmsDefaults = false
 
     private let service = CloudSyncService()
 
@@ -28,6 +30,7 @@ struct CloudSyncSheet: View {
                 Spacer()
                 Button("完成") { dismiss() }
                     .keyboardShortcut(.cancelAction)
+                    .disabled(isWorking)
             }
 
             Picker("云存储", selection: $provider) {
@@ -36,24 +39,23 @@ struct CloudSyncSheet: View {
                 }
             }
             .pickerStyle(.segmented)
+            .disabled(isWorking)
 
             Form {
-                if provider == .github {
-                    TextField("仓库所有者", text: $configuration.githubOwner)
-                    TextField("私有仓库名", text: $configuration.githubRepository)
-                    TextField("分支", text: $configuration.githubBranch)
-                    SecureField("Fine-grained personal access token", text: $token)
-                    Text("令牌需授权所选私有仓库的 Contents 读写与 Metadata 读取权限。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    SecureField("Google OAuth 访问令牌", text: $token)
-                    Text("令牌需包含 drive.file 权限；令牌到期后可在此重新连接。书稿只保存到 InkEdit 创建的 Drive 文件。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                CloudConnectionFields(
+                    configuration: $configuration, token: $token, hasSavedCredential: hasSavedCredential)
             }
             .formStyle(.grouped)
+            .disabled(isWorking)
+
+            HStack {
+                Button("应用偏好设置中的默认位置…") { confirmsDefaults = true }
+                    .disabled(isWorking).accessibilityIdentifier("sync-apply-defaults")
+                Spacer()
+                SettingsLink { Text("管理远程设置") }
+            }
+            Text("位置按作品保存；令牌由本机所有作品共用。切换远程位置将重置同步基线，不会删除旧位置的书稿。")
+                .font(.caption).foregroundStyle(.secondary)
 
             if let lastSyncedAt = configuration.lastSyncedAt {
                 LabeledContent(
@@ -81,6 +83,25 @@ struct CloudSyncSheet: View {
         .padding(24)
         .frame(width: 560)
         .inkPanel()
+        .interactiveDismissDisabled(isWorking)
+        .confirmationDialog("应用默认远程位置？", isPresented: $confirmsDefaults) {
+            Button("应用默认位置") {
+                do {
+                    let old = configuration
+                    var updated = try service.defaultConfiguration(for: provider, projectID: project.id)
+                    // Keep the baseline when the destination did not actually change.
+                    updated.remoteIdentifier = old.remoteIdentifier
+                    updated.remoteRevision = old.remoteRevision
+                    updated.baseHashes = old.baseHashes
+                    updated.lastSyncedAt = old.lastSyncedAt
+                    updated.resetSyncStateIfDestinationChanged(from: old)
+                    configuration = updated
+                    statusMessage = "默认位置已填入，点击保存连接后生效。"
+                } catch { errorMessage = error.localizedDescription }
+            }
+        } message: {
+            Text("仅替换当前作品的连接草稿；不会自动上传、拉取或删除远程文件。")
+        }
         .overlay {
             if isWorking {
                 ZStack {
@@ -113,9 +134,12 @@ struct CloudSyncSheet: View {
     }
 
     private func loadConnection() {
+        token = ""
+        hasSavedCredential = false
+        configuration = CloudSyncConfiguration(provider: provider)
         do {
             configuration = try service.configuration(for: provider, rootURL: rootURL)
-            token = try service.token(for: provider)
+            hasSavedCredential = try !service.token(for: provider).isEmpty
             statusMessage = nil
         } catch {
             errorMessage = error.localizedDescription
@@ -125,7 +149,9 @@ struct CloudSyncSheet: View {
     private func saveConnection() {
         do {
             configuration.provider = provider
-            try service.saveConnection(configuration: configuration, token: token, rootURL: rootURL)
+            configuration = try service.saveConnection(configuration: configuration, token: token, rootURL: rootURL)
+            token = ""
+            hasSavedCredential = true
             statusMessage = "连接信息已安全保存"
         } catch {
             errorMessage = error.localizedDescription
@@ -135,7 +161,9 @@ struct CloudSyncSheet: View {
     private func synchronize(direction: Direction) {
         configuration.provider = provider
         do {
-            try service.saveConnection(configuration: configuration, token: token, rootURL: rootURL)
+            configuration = try service.saveConnection(configuration: configuration, token: token, rootURL: rootURL)
+            token = ""
+            hasSavedCredential = true
         } catch {
             errorMessage = error.localizedDescription
             return

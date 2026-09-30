@@ -34,6 +34,11 @@ struct RemoteConnectionValidatorTests {
     }
 
     @Test func driveFolderProbeRequiresWritableFolder() async throws {
+        let defaultClient = ConnectionStub([.init(200, #"{"user":{}}"#)])
+        let defaultConfig = RemoteConnectionDefaults().configuration(for: .googleDrive, projectID: UUID())
+        _ = try await RemoteConnectionValidator(client: defaultClient).validate(
+            configuration: defaultConfig, token: "test")
+        #expect(await defaultClient.requests.count == 1)
         var config = CloudSyncConfiguration(provider: .googleDrive)
         config.googleDriveFolderID = "folder_123"
         let client = ConnectionStub([

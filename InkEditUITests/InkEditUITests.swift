@@ -17,6 +17,67 @@ final class InkEditUITests: XCTestCase {
     }
 
     @MainActor
+    func testPersonalAndRemotePreferencesFeedNewBooksAndConnections() throws {
+        let app = showcaseApp()
+        app.launch()
+        defer { app.terminate() }
+        XCTAssertTrue(app.buttons["偏好设置"].waitForExistence(timeout: 5))
+        app.buttons["偏好设置"].click()
+        let penName = app.textFields["settings-pen-name"]
+        XCTAssertTrue(penName.waitForExistence(timeout: 5))
+        penName.click()
+        penName.typeKey("a", modifierFlags: .command)
+        paste("山间来客", into: penName)
+        app.buttons["settings-save-profile"].click()
+        XCTAssertTrue(app.staticTexts["个人资料已保存"].waitForExistence(timeout: 3))
+        let settings = app.windows.containing(.textField, identifier: "settings-pen-name").firstMatch
+        let shot = XCTAttachment(screenshot: settings.screenshot())
+        shot.name = "personal-settings"
+        shot.lifetime = .keepAlways
+        add(shot)
+        app.typeKey("w", modifierFlags: .command)
+        app.buttons["create-book-button"].click()
+        let author = app.textFields["book-author-field"]
+        XCTAssertTrue(author.waitForExistence(timeout: 5))
+        XCTAssertEqual(author.value as? String, "山间来客")
+        app.buttons["取消"].click()
+        app.buttons["偏好设置"].click()
+        XCTAssertTrue(penName.waitForExistence(timeout: 5))
+        app.buttons["GitHub"].click()
+        let owner = app.textFields["remote-github-owner"]
+        XCTAssertTrue(owner.waitForExistence(timeout: 5), app.debugDescription)
+        owner.click()
+        paste("writer", into: owner)
+        let repository = app.textFields["remote-github-repository"]
+        repository.click()
+        paste("private-books", into: repository)
+        app.buttons["settings-save-remote"].click()
+        XCTAssertTrue(app.staticTexts["默认配置已保存；未执行同步或连接测试。"].waitForExistence(timeout: 3))
+        let remoteShot = XCTAttachment(
+            screenshot: app.windows.containing(.textField, identifier: "remote-github-owner").firstMatch.screenshot())
+        remoteShot.name = "github-settings"
+        remoteShot.lifetime = .keepAlways
+        add(remoteShot)
+        app.buttons["Google Drive"].click()
+        let folder = app.textFields["remote-drive-folder"]
+        XCTAssertTrue(folder.waitForExistence(timeout: 5))
+        folder.click()
+        paste("folder_123", into: folder)
+        app.buttons["settings-save-remote"].click()
+        app.buttons["GitHub"].click()
+        XCTAssertEqual(owner.value as? String, "writer")
+        XCTAssertEqual(repository.value as? String, "private-books")
+        app.typeKey("w", modifierFlags: .command)
+        app.buttons["library-sync-book"].click()
+        XCTAssertTrue(owner.waitForExistence(timeout: 5))
+        XCTAssertEqual(owner.value as? String, "writer")
+        XCTAssertEqual(repository.value as? String, "private-books")
+        app.radioButtons["Google Drive"].click()
+        XCTAssertTrue(folder.waitForExistence(timeout: 5))
+        XCTAssertEqual(folder.value as? String, "folder_123")
+    }
+
+    @MainActor
     func testCreatesBookSheetWithChineseFields() throws {
         let app = XCUIApplication()
         app.launchArguments = [

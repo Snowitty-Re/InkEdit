@@ -14,7 +14,7 @@ struct RemoteConnectionDefaults: Codable, Equatable, Sendable {
             result.githubBranch = githubBranch
             result.githubSnapshotPath = ".inkedit/books/\(projectID.uuidString).zip"
         } else {
-            result.googleDriveFolderID = googleDriveFolderID.isEmpty ? nil : googleDriveFolderID
+            result.googleDriveFolderID = googleDriveFolderID.isEmpty ? "root" : googleDriveFolderID
         }
         return result
     }
