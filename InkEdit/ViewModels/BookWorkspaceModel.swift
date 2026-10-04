@@ -28,19 +28,22 @@ final class BookWorkspaceModel {
     @ObservationIgnored private var editorIsBusy = false
     @ObservationIgnored private var saveGeneration = 0
     private let autosaveIdleDuration: Duration
+    private let autosaveClock: any AutosaveClock
     private let chapterWriteQueue = DispatchQueue(label: "InkEdit.chapter-writes", qos: .utility)
 
     init(
         project: OpenBookProject,
         repository: BookRepository = BookRepository(),
         annotationRepository: AnnotationRepository = AnnotationRepository(),
-        autosaveIdleDuration: Duration = .seconds(5)
+        autosaveIdleDuration: Duration = .seconds(5),
+        autosaveClock: any AutosaveClock = ContinuousAutosaveClock()
     ) {
         rootURL = project.rootURL
         self.project = project.metadata
         self.repository = repository
         self.annotationRepository = annotationRepository
         self.autosaveIdleDuration = autosaveIdleDuration
+        self.autosaveClock = autosaveClock
     }
 
     var chapters: [BookOutlineNode] {
@@ -229,10 +232,11 @@ final class BookWorkspaceModel {
         let content = chapterText
         let revision = editRevision
         let generation = saveGeneration
-        let deadline = ContinuousClock.now + autosaveIdleDuration
+        let clock = autosaveClock
+        let deadline = clock.now + autosaveIdleDuration
         saveTask = Task { [weak self] in
             do {
-                try await Task.sleep(until: deadline, clock: .continuous)
+                try await clock.sleep(until: deadline)
                 guard let self, !Task.isCancelled, generation == self.saveGeneration, !self.editorIsBusy else {
                     return
                 }

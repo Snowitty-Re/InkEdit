@@ -12,7 +12,8 @@ struct MarkdownTextEditorTests {
         try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: parent) }
         let project = try repository.createBook(title: "输入法回归", author: "", in: parent)
-        let model = BookWorkspaceModel(project: project, autosaveIdleDuration: .milliseconds(200))
+        let clock = ManualAutosaveClock()
+        let model = BookWorkspaceModel(project: project, autosaveIdleDuration: .milliseconds(200), autosaveClock: clock)
         model.start()
         let originalText = model.chapterText
         let chapter = try #require(project.metadata.chapters.first)
@@ -34,7 +35,7 @@ struct MarkdownTextEditorTests {
         let selection = textView.selectedRange()
 
         // Even a long pause at the candidate window must not save or refresh status.
-        try await Task.sleep(for: .milliseconds(450))
+        await clock.advance(by: .milliseconds(450))
         coordinator.synchronize(text: binding)
 
         #expect(textView.hasMarkedText())
@@ -47,9 +48,9 @@ struct MarkdownTextEditorTests {
         textView.insertText("中文", replacementRange: NSRange(location: NSNotFound, length: 0))
         #expect(!textView.hasMarkedText())
         #expect(model.chapterText == "已经确认中文")
-        try await Task.sleep(for: .milliseconds(80))
+        await clock.advance(by: .milliseconds(80))
         #expect(model.saveState == .unsaved)
-        try await waitForAutosave(model)
+        try await clock.waitForAutosave(model)
         #expect(try repository.readChapter(chapter, in: project.rootURL) == "已经确认中文")
     }
 
@@ -59,7 +60,8 @@ struct MarkdownTextEditorTests {
         try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: parent) }
         let project = try repository.createBook(title: "选区闲置", author: "", in: parent)
-        let model = BookWorkspaceModel(project: project, autosaveIdleDuration: .milliseconds(200))
+        let clock = ManualAutosaveClock()
+        let model = BookWorkspaceModel(project: project, autosaveIdleDuration: .milliseconds(200), autosaveClock: clock)
         model.start()
         let originalText = model.chapterText
         let chapter = try #require(project.metadata.chapters.first)
@@ -74,12 +76,12 @@ struct MarkdownTextEditorTests {
         coordinator.textDidChange(Notification(name: NSText.didChangeNotification, object: textView))
 
         for location in 1...5 {
-            try await Task.sleep(for: .milliseconds(70))
+            await clock.advance(by: .milliseconds(70))
             textView.setSelectedRange(NSRange(location: location, length: 0))
             #expect(model.saveState == .unsaved)
             #expect(try repository.readChapter(chapter, in: project.rootURL) == originalText)
         }
-        try await waitForAutosave(model)
+        try await clock.waitForAutosave(model)
         #expect(try repository.readChapter(chapter, in: project.rootURL) == textView.string)
     }
 
@@ -96,15 +98,6 @@ struct MarkdownTextEditorTests {
         #expect(source == "正文")
         textView.unmarkText()
         #expect(source == "正文拼音")
-    }
-
-    private func waitForAutosave(_ model: BookWorkspaceModel) async throws {
-        let deadline = ContinuousClock.now + .seconds(5)
-        while ContinuousClock.now < deadline {
-            if case .saved = model.saveState { return }
-            try await Task.sleep(for: .milliseconds(20))
-        }
-        Issue.record("Autosave did not complete: \(model.saveState)")
     }
 
     @Test func changingSelectionPreservesRangeAndDocumentLayout() {

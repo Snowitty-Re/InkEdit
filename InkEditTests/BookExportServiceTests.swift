@@ -1,6 +1,7 @@
 import Foundation
 import PDFKit
 import Testing
+import os
 
 @testable import InkEdit
 
@@ -81,18 +82,17 @@ struct BookExportServiceTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let project = try manuscript(in: root, chapterCount: 24, paragraphCount: 180)
         let destination = root.appendingPathComponent("成书.\(format.filenameExtension)")
-        var ticks = 0
-        let heartbeat = Task { @MainActor in
-            while !Task.isCancelled {
-                try await Task.sleep(for: .milliseconds(5))
-                ticks += 1
-            }
+        let mainThreadObservations = OSAllocatedUnfairLock(initialState: [Bool]())
+        let service = BookExportService { _ in
+            mainThreadObservations.withLock { $0.append(Thread.isMainThread) }
         }
-        defer { heartbeat.cancel() }
 
-        try await BookExportService().export(format, project: project, rootURL: root, destinationURL: destination)
+        try await service.export(format, project: project, rootURL: root, destinationURL: destination)
 
-        #expect(ticks > 1)
+        // Verify real preparation/build/write execution, not scheduler-dependent heartbeat counts.
+        let observations = mainThreadObservations.withLock { $0 }
+        #expect(observations.count == 3)
+        #expect(observations.allSatisfy { !$0 })
         let entries = try ZIPArchiveReader().entries(in: Data(contentsOf: destination))
         let lastChapter = format == .epub ? "EPUB/text/chapter-024.xhtml" : "word/document.xml"
         let content = try #require(entries.first { $0.path == lastChapter })

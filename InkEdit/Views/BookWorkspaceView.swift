@@ -118,6 +118,7 @@ struct BookWorkspaceView: View {
                         Label("笔记与重点", systemImage: "note.text")
                     }
                     .help("显示笔记与重点")
+                    .accessibilityIdentifier("workspace-toggle-notes")
                 }
                 ToolbarItem {
                     Button {

@@ -12,8 +12,16 @@ enum BookExportError: LocalizedError {
 }
 
 actor BookExportService {
+    enum Phase: Sendable { case preparing, building, writing }
+
     private let repository = BookRepository()
     private let htmlRenderer = MarkdownHTMLRenderer()
+    // Synchronous diagnostics on the export executor; UI consumers must hop to MainActor.
+    private let onPhase: @Sendable (Phase) -> Void
+
+    init(onPhase: @escaping @Sendable (Phase) -> Void = { _ in }) {
+        self.onPhase = onPhase
+    }
 
     func publication(
         project: BookProject, rootURL: URL, chapterIDs: Set<UUID>? = nil
@@ -53,7 +61,9 @@ actor BookExportService {
         chapterIDs: Set<UUID>? = nil
     ) async throws {
         try Task.checkCancellation()
+        onPhase(.preparing)
         let publication = try publication(project: project, rootURL: rootURL, chapterIDs: chapterIDs)
+        onPhase(.building)
         let data: Data
         switch format {
         case .html:
@@ -66,6 +76,7 @@ actor BookExportService {
             data = try DOCXBuilder().build(publication)
         }
         try Task.checkCancellation()
+        onPhase(.writing)
         try AtomicFileWriter.write(data, to: destinationURL)
     }
 
