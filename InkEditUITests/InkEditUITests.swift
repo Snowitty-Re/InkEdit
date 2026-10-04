@@ -133,7 +133,8 @@ final class InkEditUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["还没有批注"].waitForExistence(timeout: 5))
         captureWindow(app, name: "notes-light")
         notesToggle.click()
-        app.buttons["workspace-back-button"].click()
+        // macOS 15 can expose both the toolbar wrapper and its nested button.
+        app.buttons.matching(identifier: "workspace-back-button").firstMatch.click()
         XCTAssertTrue(app.buttons["library-open-book"].waitForExistence(timeout: 5))
         app.buttons["library-book-details"].click()
         XCTAssertTrue(app.textFields["details-author"].waitForExistence(timeout: 5))
@@ -348,10 +349,13 @@ final class InkEditUITests: XCTestCase {
             path.typeKey("a", modifierFlags: .command)
             paste(source.path, into: path)
             path.typeKey(.return, modifierFlags: [])
-            let navigated = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: path)
-            XCTAssertEqual(XCTWaiter.wait(for: [navigated], timeout: 5), .completed)
             let choose = app.buttons["OKButton"]
-            XCTAssertTrue(choose.waitForExistence(timeout: 5))
+            // The dismissed Go to Folder field can remain in macOS 15's accessibility tree.
+            // Wait for the actual next action to be available, not for that hidden field's removal.
+            let navigated = XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "exists == true AND enabled == true"),
+                object: choose)
+            XCTAssertEqual(XCTWaiter.wait(for: [navigated], timeout: 5), .completed, app.debugDescription)
             choose.click()
         }
         let remove = app.buttons["remove-book-cover"]
