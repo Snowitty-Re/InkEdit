@@ -83,7 +83,7 @@ struct BookWorkspaceView: View {
                 }
                 ToolbarItem(placement: .navigation) {
                     Button {
-                        model.flushCurrentChapter()
+                        guard model.flushCurrentChapter() else { return }
                         onClose()
                     } label: {
                         Label("返回书架", systemImage: "chevron.left")
@@ -121,7 +121,7 @@ struct BookWorkspaceView: View {
                 }
                 ToolbarItem {
                     Button {
-                        model.flushCurrentChapter()
+                        guard model.flushCurrentChapter() else { return }
                         showsExport = true
                     } label: {
                         Label("导出书籍", systemImage: "square.and.arrow.up")
@@ -132,7 +132,7 @@ struct BookWorkspaceView: View {
                 }
                 ToolbarItem {
                     Button {
-                        model.flushCurrentChapter()
+                        guard model.flushCurrentChapter() else { return }
                         showsCloudSync = true
                     } label: {
                         Label("云端同步", systemImage: "arrow.triangle.2.circlepath.icloud")
@@ -203,11 +203,22 @@ struct BookWorkspaceView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .navigationTitle(chapter.title)
                 } else {
-                    ContentUnavailableView("没有章节", systemImage: "doc.badge.plus", description: Text("创建章节后开始写作。"))
+                    if model.chapters.isEmpty {
+                        ContentUnavailableView("没有章节", systemImage: "doc.badge.plus", description: Text("创建章节后开始写作。"))
+                    } else {
+                        ContentUnavailableView {
+                            Label("无法读取章节", systemImage: "exclamationmark.triangle")
+                        } description: {
+                            Text("请检查章节文件和访问权限，正文未被修改。")
+                        } actions: {
+                            Button("重新读取") { model.start() }
+                        }
+                    }
                 }
             }
         }
         .frame(minWidth: 860, minHeight: 580)
+        .background(WorkspaceCloseGuard(model: model).frame(width: 0, height: 0))
         .inkPanel()
         .inspector(isPresented: $showsInspector) {
             NotesInspectorView(model: model)
@@ -230,9 +241,6 @@ struct BookWorkspaceView: View {
         }
         .onAppear { model.start() }
         .onDisappear { model.flushCurrentChapter() }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
-            model.flushCurrentChapter()
-        }
         .alert("新建章节", isPresented: $showsNewChapter) {
             TextField("章节标题", text: $newChapterTitle)
             Button("取消", role: .cancel) {}
@@ -241,7 +249,13 @@ struct BookWorkspaceView: View {
         } message: {
             Text("章节将以独立 Markdown 文件保存在书籍目录。")
         }
-        .alert("保存失败", isPresented: errorBinding) {
+        .alert("操作未完成", isPresented: errorBinding) {
+            if case .failed = model.saveState {
+                Button("重试保存") {
+                    model.clearError()
+                    model.flushCurrentChapter()
+                }
+            }
             Button("好", role: .cancel) { model.clearError() }
         } message: {
             Text(model.errorMessage ?? "未知错误")
@@ -267,7 +281,7 @@ struct BookWorkspaceView: View {
             get: { mode },
             set: { newMode in
                 if newMode == .read {
-                    model.flushCurrentChapter()
+                    guard model.flushCurrentChapter() else { return }
                 }
                 mode = newMode
             }

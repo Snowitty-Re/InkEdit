@@ -41,7 +41,6 @@ final class BookWorkspaceModel {
         self.repository = repository
         self.annotationRepository = annotationRepository
         self.autosaveIdleDuration = autosaveIdleDuration
-        selectedChapterID = project.metadata.chapters.first?.id
     }
 
     var chapters: [BookOutlineNode] {
@@ -64,7 +63,8 @@ final class BookWorkspaceModel {
     }
 
     func start() {
-        loadSelectedChapter()
+        // Do not replace an existing editor buffer when SwiftUI presents the view again.
+        if selectedChapterID == nil { loadChapter(project.chapters.first) }
         do {
             annotationDocument = try annotationRepository.load(in: rootURL)
         } catch {
@@ -73,14 +73,13 @@ final class BookWorkspaceModel {
     }
 
     func selectChapter(id: UUID) {
-        guard id != selectedChapterID else { return }
-        flushCurrentChapter()
-        selectedChapterID = id
-        loadSelectedChapter()
+        guard id != selectedChapterID, let chapter = chapters.first(where: { $0.id == id }) else { return }
+        guard flushCurrentChapter() else { return }
+        loadChapter(chapter)
     }
 
     func updateText(_ text: String) {
-        guard chapterText != text else { return }
+        guard selectedChapter != nil, chapterText != text else { return }
         chapterText = text
         needsSave = true
         editRevision += 1
@@ -95,19 +94,20 @@ final class BookWorkspaceModel {
     }
 
     func addChapter(title: String) {
-        flushCurrentChapter()
+        guard flushCurrentChapter() else { return }
         do {
             project = try repository.addChapter(title: title, to: project, in: rootURL)
-            selectedChapterID = project.chapters.last?.id
-            loadSelectedChapter()
+            loadChapter(project.chapters.last)
         } catch {
             errorMessage = error.localizedDescription
         }
     }
 
-    func flushCurrentChapter() {
+    @discardableResult
+    func flushCurrentChapter() -> Bool {
         cancelScheduledSave()
-        guard needsSave, let chapter = selectedChapter else { return }
+        guard needsSave else { return true }
+        guard let chapter = selectedChapter else { return false }
         do {
             // Wait for any already-started autosave before writing the newest version.
             // Cancelling a task alone cannot stop an atomic file write in progress.
@@ -116,9 +116,11 @@ final class BookWorkspaceModel {
             }
             needsSave = false
             saveState = .saved(.now)
+            return true
         } catch {
             saveState = .failed(error.localizedDescription)
             errorMessage = error.localizedDescription
+            return false
         }
     }
 
@@ -134,12 +136,14 @@ final class BookWorkspaceModel {
     func reloadAfterExternalChange() {
         cancelScheduledSave()
         do {
-            project = try repository.loadProject(at: rootURL)
-            if !chapters.contains(where: { $0.id == selectedChapterID }) {
-                selectedChapterID = chapters.first?.id
-            }
-            loadSelectedChapter()
-            annotationDocument = try annotationRepository.load(in: rootURL)
+            let updated = try repository.loadProject(at: rootURL)
+            let chapter = updated.chapters.first { $0.id == selectedChapterID } ?? updated.chapters.first
+            let content = try chapter.map { try repository.readChapter($0, in: rootURL) } ?? ""
+            let annotations = try annotationRepository.load(in: rootURL)
+            // Publish a coherent snapshot only after every read succeeds.
+            project = updated
+            applyLoadedChapter(chapter, content: content)
+            annotationDocument = annotations
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -190,22 +194,22 @@ final class BookWorkspaceModel {
         saveAnnotations()
     }
 
-    private func loadSelectedChapter() {
-        cancelScheduledSave()
-        editorIsBusy = false
-        guard let chapter = selectedChapter else {
-            chapterText = ""
-            needsSave = false
-            return
-        }
+    private func loadChapter(_ chapter: BookOutlineNode?) {
         do {
-            let content = try repository.readChapter(chapter, in: rootURL)
-            chapterText = content
-            needsSave = false
-            saveState = .saved(.now)
+            let content = try chapter.map { try repository.readChapter($0, in: rootURL) } ?? ""
+            applyLoadedChapter(chapter, content: content)
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func applyLoadedChapter(_ chapter: BookOutlineNode?, content: String) {
+        cancelScheduledSave()
+        editorIsBusy = false
+        selectedChapterID = chapter?.id
+        chapterText = content
+        needsSave = false
+        saveState = .saved(.now)
     }
 
     private func cancelScheduledSave() {

@@ -3,6 +3,8 @@ import SwiftUI
 
 @main
 struct InkEditApp: App {
+    @NSApplicationDelegateAdaptor(InkEditApplicationDelegate.self) private var applicationDelegate
+
     private var defaultWindowSize: CGSize {
         #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("-ui-testing-compact") {
