@@ -84,9 +84,12 @@ struct ProjectSnapshotStore {
             let localEntry = localByPath[remoteEntry.path]
             guard localEntry?.digest != remoteEntry.digest else { continue }
             let baseDigest = baseHashes[remoteEntry.path]
-            let localChanged = localEntry != nil && localEntry?.digest != baseDigest
+            // A missing file with a base hash is a local deletion, not a new remote file.
+            let localChanged = localEntry?.digest != baseDigest
             let remoteChanged = remoteEntry.digest != baseDigest
-            if localChanged && remoteChanged {
+            // An unchanged remote must never undo local edits or resurrect local deletions.
+            guard remoteChanged else { continue }
+            if localChanged {
                 try writeConflict(remoteEntry, rootURL: rootURL, now: now)
                 conflicts += 1
             } else {

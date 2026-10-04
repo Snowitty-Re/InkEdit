@@ -4,6 +4,54 @@ import Testing
 @testable import InkEdit
 
 struct ProjectSnapshotTests {
+    @Test(arguments: [false, true])
+    func preservesLocalEditsOrDeletionWhenRemoteIsUnchanged(deleted: Bool) throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let base = ProjectSnapshotEntry(path: "第一章.md", data: Data("旧稿".utf8))
+        let file = root.appendingPathComponent(base.path)
+        if !deleted { try Data("尚未上传的本地新稿".utf8).write(to: file) }
+
+        let result = try ProjectSnapshotStore().merge(
+            remote: ProjectSnapshot(entries: [base]), into: root, baseHashes: [base.path: base.digest])
+
+        #expect(result.changedFileCount == 0)
+        #expect(result.conflictFileCount == 0)
+        if deleted {
+            #expect(!FileManager.default.fileExists(atPath: file.path))
+        } else {
+            #expect(try String(contentsOf: file, encoding: .utf8) == "尚未上传的本地新稿")
+        }
+    }
+
+    @Test func preservesLocalDeletionAsConflictWhenRemoteChanged() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let base = ProjectSnapshotEntry(path: "第一章.md", data: Data("旧稿".utf8))
+        let remote = ProjectSnapshotEntry(path: base.path, data: Data("云端新稿".utf8))
+
+        let result = try ProjectSnapshotStore().merge(
+            remote: ProjectSnapshot(entries: [remote]), into: root, baseHashes: [base.path: base.digest])
+
+        #expect(result.changedFileCount == 0)
+        #expect(result.conflictFileCount == 1)
+        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent(base.path).path))
+        let files = try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
+        let conflict = try #require(files.first { $0.lastPathComponent.contains("云端冲突") })
+        #expect(try Data(contentsOf: conflict) == remote.data)
+    }
+
+    @Test func identicalChangesDoNotCreateConflicts() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let entry = ProjectSnapshotEntry(path: "第一章.md", data: Data("同一份新稿".utf8))
+        try entry.data.write(to: root.appendingPathComponent(entry.path))
+        let result = try ProjectSnapshotStore().merge(
+            remote: ProjectSnapshot(entries: [entry]), into: root, baseHashes: [entry.path: "old"])
+        #expect(result.changedFileCount == 0)
+        #expect(result.conflictFileCount == 0)
+    }
+
     @Test func capturesPortableProjectFilesButExcludesLocalSyncState() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
