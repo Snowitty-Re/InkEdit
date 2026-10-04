@@ -15,11 +15,11 @@
 提交前运行：
 
 ```sh
-xcrun swift-format lint --recursive InkEdit InkEditTests InkEditUITests
-xcodebuild test \
-  -project InkEdit.xcodeproj \
-  -scheme InkEdit \
-  -destination 'platform=macOS' \
-  CODE_SIGNING_ALLOWED=NO
+bash scripts/ci.sh lint
+bash scripts/ci.sh unit
+bash scripts/ci.sh ui
 ```
 
+重复运行测试请设置新的 `CI_OUTPUT_DIR`。闲置保存用例使用可控时钟，不依赖短时间的真实
+`Task.sleep`；UI 定位优先使用专用 accessibility identifier。CI 与内部交付见
+[CI/CD 说明](docs/CI_CD.md)。

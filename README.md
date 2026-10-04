@@ -27,6 +27,12 @@ xcodebuild \
 
 更多约定见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
+## CI 与内部测试包
+
+PR、main 推送会运行格式检查、单元/UI 测试，再生成可下载的 macOS 通用内部测试包。
+测试报告与产物保留 14 天；不会自动公开发布。工作流、下载与签名限制见
+[CI/CD 说明](docs/CI_CD.md) 和 [内部测试包说明](docs/INTERNAL_BUILD.md)。
+
 ## 云端同步
 
 工作区支持 Google Drive 与 GitHub 私有仓库的手动上传/拉取，并通过基线哈希保留双端修改。

@@ -4,18 +4,100 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+
+defaults:
+  run:
+    shell: bash
 
 jobs:
-  macos:
+  quality:
     runs-on: macos-15
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - name: Check formatting
-        run: xcrun swift-format lint --recursive InkEdit InkEditTests InkEditUITests
-      - name: Build and test
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Toolchain and formatting
+        run: bash scripts/ci.sh lint
+
+  tests:
+    name: Tests (${{ matrix.suite }})
+    needs: quality
+    runs-on: macos-15
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [unit, ui]
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Run tests
+        env:
+          TEST_SUITE: ${{ matrix.suite }}
+        run: bash scripts/ci.sh "$TEST_SUITE"
+      - name: Preserve logs, results and screenshots
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: test-results-${{ matrix.suite }}-${{ github.run_attempt }}
+          path: build/ci/reports/
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14
+
+  package:
+    name: Internal universal app
+    needs: [quality, tests]
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Build and verify internal package
+        run: bash scripts/ci.sh package
+      - name: Upload internal test package
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: InkEdit-internal-universal-${{ github.sha }}
+          path: build/ci/artifacts/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Preserve packaging diagnostics
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: package-diagnostics-${{ github.run_attempt }}
+          path: build/ci/reports/
+          if-no-files-found: warn
+          retention-days: 14
+
+  # Keep the previous required-check name for existing branch protection rules.
+  macos:
+    if: always()
+    needs: [quality, tests, package]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      QUALITY_RESULT: ${{ needs.quality.result }}
+      TEST_RESULT: ${{ needs.tests.result }}
+      PACKAGE_RESULT: ${{ needs.package.result }}
+    steps:
+      - name: Require every stage to pass
         run: |
-          xcodebuild test \
-            -project InkEdit.xcodeproj \
-            -scheme InkEdit \
-            -destination 'platform=macOS' \
-            CODE_SIGNING_ALLOWED=NO
+          test "$QUALITY_RESULT" = success
+          test "$TEST_RESULT" = success
+          test "$PACKAGE_RESULT" = success
