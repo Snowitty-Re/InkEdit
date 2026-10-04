@@ -60,7 +60,9 @@ xcodebuild build "${common[@]}" -configuration Release \
   | tee "$output/reports/package.log"
 
 app="$derived/Build/Products/Release/InkEdit.app"
-xcrun lipo "$app/Contents/MacOS/InkEdit" -verify_arch arm64 x86_64
+for architecture in arm64 x86_64; do
+  xcrun lipo "$app/Contents/MacOS/InkEdit" -verify_arch "$architecture"
+done
 codesign --verify --deep --strict "$app"
 revision="$(git rev-parse --short=12 HEAD)"
 archive="InkEdit-internal-$revision-universal.zip"
